@@ -7,7 +7,9 @@ const cors = require('cors')
 const helmet = require('helmet')
 const rateLimit = require('express-rate-limit')
 
+const redis = require('./config/redis')
 const authRoutes = require('./modules/auth/auth.routes')
+const forgotPasswordRoutes = require('./modules/forgot-password/forgotPassword.routes')
 const transactionRoutes = require('./modules/transactions/transactions.routes')
 const categoryRoutes = require('./modules/categories/categories.routes')
 const recommendationRoutes = require('./modules/recommendations/recommendations.routes')
@@ -26,7 +28,6 @@ const allowedOrigins = [
 
 app.use(cors({
   origin(origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true)
     if (allowedOrigins.includes(origin)) return callback(null, true)
     return callback(new Error(`CORS: Origin ${origin} tidak diizinkan`))
@@ -41,7 +42,7 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }))
 
 // ─── Global rate limiter ──────────────────────────────────────────────────────
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 menit
+  windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
@@ -55,11 +56,13 @@ app.get('/api/health', (_req, res) => {
     message: 'SmartFinance AI Backend is running',
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV || 'development',
+    redis: redis.isReady() ? 'connected' : 'unavailable',
   })
 })
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes)
+app.use('/api/auth', forgotPasswordRoutes)
 app.use('/api/transactions', transactionRoutes)
 app.use('/api/categories', categoryRoutes)
 app.use('/api/recommendations', recommendationRoutes)
@@ -74,19 +77,28 @@ app.use((_req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
   console.error('[ERROR]', err)
-  const statusCode = err.statusCode || 500
-  const message = err.message || 'Terjadi kesalahan server'
-  res.status(statusCode).json({ success: false, message })
+  res.status(err.statusCode || 500).json({
+    success: false,
+    message: err.message || 'Terjadi kesalahan server',
+  })
 })
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 SmartFinance AI Backend running on http://localhost:${PORT}`)
-  console.log(`📋 Health check: http://localhost:${PORT}/api/health`)
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`)
-  console.log(`🗄  Database: ${process.env.DB_NAME}@${process.env.DB_HOST}:${process.env.DB_PORT}\n`)
-})
+async function start() {
+  // Hubungkan Redis (non-blocking, graceful fallback jika gagal)
+  await redis.connect()
+
+  app.listen(PORT, () => {
+    console.log(`\n🚀 SmartFinance AI Backend  →  http://localhost:${PORT}`)
+    console.log(`🩺 Health check             →  http://localhost:${PORT}/api/health`)
+    console.log(`🗄  PostgreSQL               →  ${process.env.DB_NAME}@${process.env.DB_HOST}:${process.env.DB_PORT}`)
+    console.log(`⚡ Redis (Memurai)           →  ${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}`)
+    console.log(`🌍 Environment              →  ${process.env.NODE_ENV || 'development'}\n`)
+  })
+}
+
+start()
 
 module.exports = app

@@ -1,16 +1,13 @@
 'use strict'
 
 const db = require('../../config/database')
+const redis = require('../../config/redis')
 
-// ─── rule-based engine (mirrors financeAnalytics.js dari FE) ──────────────────
+// ─── Rule-based engine ────────────────────────────────────────────────────────
 
 function getSummary(transactions, user) {
-  const income = transactions
-    .filter((t) => t.type === 'income')
-    .reduce((s, t) => s + Number(t.amount), 0)
-  const expense = transactions
-    .filter((t) => t.type === 'expense')
-    .reduce((s, t) => s + Number(t.amount), 0)
+  const income = transactions.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
+  const expense = transactions.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
   const balance = income - expense
   const savingTarget = Number(user.saving_target || 0)
   const savingProgress = savingTarget > 0
@@ -136,8 +133,14 @@ function buildRecommendations(transactions, user) {
   return recs
 }
 
+// ─── Service ──────────────────────────────────────────────────────────────────
+
 async function getRecommendations(userId) {
-  // Get user profile
+  // Cek cache Redis
+  const cacheKey = redis.keys.recommendationsCache(userId)
+  const cached = await redis.get(cacheKey)
+  if (cached) return cached
+
   const userResult = await db.query(
     `SELECT u.*, row_to_json(up.*) AS profile
      FROM users u
@@ -158,7 +161,6 @@ async function getRecommendations(userId) {
     risk_profile: profile.risk_profile || 'moderate',
   }
 
-  // Get current month transactions
   const txResult = await db.query(
     `SELECT t.*, c.name AS category_name
      FROM transactions t
@@ -169,9 +171,7 @@ async function getRecommendations(userId) {
     [userId],
   )
 
-  const transactions = txResult.rows
-
-  // Try to fetch saved recommendations from DB first
+  // Cek saved recommendations dari DB
   const savedResult = await db.query(
     `SELECT * FROM recommendations
      WHERE user_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
@@ -179,8 +179,9 @@ async function getRecommendations(userId) {
     [userId],
   )
 
+  let data
   if (savedResult.rows.length > 0) {
-    return savedResult.rows.map((row) => ({
+    data = savedResult.rows.map((row) => ({
       id: row.id,
       recommendation_type: row.recommendation_type,
       title: row.title,
@@ -191,10 +192,18 @@ async function getRecommendations(userId) {
       action: row.action || '',
       expires_at: row.expires_at,
     }))
+  } else {
+    data = buildRecommendations(txResult.rows, user)
   }
 
-  // Fall back to rule-based
-  return buildRecommendations(transactions, user)
+  // Simpan ke Redis cache (30 menit)
+  await redis.set(cacheKey, data, redis.TTL.RECOMMENDATIONS_CACHE)
+
+  return data
 }
 
-module.exports = { getRecommendations }
+async function invalidateCache(userId) {
+  await redis.del(redis.keys.recommendationsCache(userId))
+}
+
+module.exports = { getRecommendations, invalidateCache }

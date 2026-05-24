@@ -1,20 +1,30 @@
 'use strict'
 
-const db = require('../../config/database')
-const redis = require('../../config/redis')
+/**
+ * recommendations.service.js (v2-fixed)
+ *
+ * PERUBAHAN v2:
+ *   - Integrasi aiService.js: sekarang memanggil Python AI API (Groq LLM)
+ *   - Format response disesuaikan dengan yang diharapkan frontend
+ *   - Rule-based engine dipertahankan sebagai FALLBACK jika AI tidak tersedia
+ *   - invalidateAiCache() dipanggil bersamaan dengan invalidateCache()
+ */
 
-// ─── Rule-based engine ────────────────────────────────────────────────────────
+const db    = require('../../config/database')
+const redis = require('../../config/redis')
+const { getAiAnalysis, invalidateAiCache } = require('./aiService')
+
+// ─── Rule-based fallback ───────────────────────────────────────────────────
 
 function getSummary(transactions, user) {
-  const income = transactions.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
+  const income  = transactions.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
   const expense = transactions.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
   const balance = income - expense
-  const savingTarget = Number(user.saving_target || 0)
+  const savingTarget  = Number(user.saving_target || 0)
   const savingProgress = savingTarget > 0
-    ? Math.min(Math.round((Math.max(balance, 0) / savingTarget) * 100), 100)
-    : 0
-  const expenseRatio = income > 0 ? Math.round((expense / income) * 100) : 0
-  const savingRate = income > 0 ? Math.round((Math.max(balance, 0) / income) * 100) : 0
+    ? Math.min(Math.round((Math.max(balance, 0) / savingTarget) * 100), 100) : 0
+  const expenseRatio  = income > 0 ? Math.round((expense / income) * 100) : 0
+  const savingRate    = income > 0 ? Math.round((Math.max(balance, 0) / income) * 100) : 0
   return { income, expense, balance, savingProgress, expenseRatio, savingRate }
 }
 
@@ -23,28 +33,27 @@ function getCategoryData(transactions) {
   transactions
     .filter((t) => t.type === 'expense')
     .forEach((t) => {
-      const key = t.category_name || t.category || 'Lainnya'
+      const key = t.category_name || 'Lainnya'
       map[key] = (map[key] || 0) + Number(t.amount)
     })
-  return Object.entries(map)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value)
+  return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 }
 
-function buildRecommendations(transactions, user) {
+function buildFallbackRecommendations(transactions, user) {
   if (!transactions.length) {
     return [{
       id: 'empty-transaction',
       recommendation_type: 'starter',
       title: 'Mulai dari transaksi pertama',
       text: 'Tambahkan pemasukan dan pengeluaran pertamamu agar SmartFinance AI bisa membuat insight yang relevan.',
-      message: 'Tambahkan pemasukan dan pengeluaran pertamamu agar SmartFinance AI bisa membuat insight yang relevan.',
       priority: 'medium',
       source: 'rule_based',
+      label: null,
+      confidence: null,
     }]
   }
 
-  const summary = getSummary(transactions, user)
+  const summary    = getSummary(transactions, user)
   const categories = getCategoryData(transactions)
   const topCategory = categories[0]
   const recs = []
@@ -54,10 +63,11 @@ function buildRecommendations(transactions, user) {
       id: 'top-category',
       recommendation_type: 'spending_pattern',
       title: 'Kategori pengeluaran terbesar',
-      text: `${topCategory.name} menjadi pengeluaran terbesar. Coba tetapkan batas mingguan agar cashflow lebih terkontrol.`,
-      message: `${topCategory.name} menjadi pengeluaran terbesar. Coba tetapkan batas mingguan agar cashflow lebih terkontrol.`,
+      text: `${topCategory.name.replace(/_/g, ' ')} menjadi pengeluaran terbesar. Coba tetapkan batas mingguan agar cashflow lebih terkontrol.`,
       priority: 'high',
       source: 'rule_based',
+      label: null,
+      confidence: null,
     })
   }
 
@@ -67,68 +77,87 @@ function buildRecommendations(transactions, user) {
       recommendation_type: 'cashflow_health',
       title: 'Rasio pengeluaran cukup tinggi',
       text: `Pengeluaranmu sekitar ${summary.expenseRatio}% dari pemasukan. Target aman adalah menjaga pengeluaran di bawah 70%.`,
-      message: `Pengeluaranmu sekitar ${summary.expenseRatio}% dari pemasukan. Target aman adalah menjaga pengeluaran di bawah 70%.`,
       priority: 'high',
       source: 'rule_based',
+      label: null,
+      confidence: null,
     })
   } else {
     recs.push({
       id: 'expense-ratio-safe',
       recommendation_type: 'cashflow_health',
       title: 'Cashflow mulai terkendali',
-      text: `Rasio pengeluaranmu sekitar ${summary.expenseRatio}%. Pertahankan kebiasaan ini dan alokasikan selisihnya untuk tabungan.`,
-      message: `Rasio pengeluaranmu sekitar ${summary.expenseRatio}%. Pertahankan kebiasaan ini dan alokasikan selisihnya untuk tabungan.`,
+      text: `Rasio pengeluaranmu sekitar ${summary.expenseRatio}%. Pertahankan dan alokasikan selisihnya untuk tabungan.`,
       priority: 'medium',
       source: 'rule_based',
+      label: null,
+      confidence: null,
     })
   }
 
-  const goal = user.financial_goal
+  const goal  = user.financial_goal
   const style = user.spending_style
-
   if (goal === 'emergency_fund') {
-    recs.push({
-      id: 'emergency-fund',
-      recommendation_type: 'goal_based',
-      title: 'Fokus dana darurat',
-      text: 'Karena tujuanmu membangun dana darurat, prioritaskan menyisihkan dana tetap setelah pemasukan masuk.',
-      message: 'Karena tujuanmu membangun dana darurat, prioritaskan menyisihkan dana tetap setelah pemasukan masuk.',
-      priority: 'medium',
-      source: 'rule_based',
-    })
+    recs.push({ id: 'emergency-fund', recommendation_type: 'goal_based', title: 'Fokus dana darurat', text: 'Karena tujuanmu membangun dana darurat, prioritaskan menyisihkan dana tetap setelah pemasukan masuk.', priority: 'medium', source: 'rule_based', label: null, confidence: null })
   } else if (style === 'impulsive') {
-    recs.push({
-      id: 'impulsive-spending',
-      recommendation_type: 'behavior_based',
-      title: 'Kurangi pembelian impulsif',
-      text: 'Gunakan aturan tunggu 24 jam sebelum membeli barang non-prioritas agar pengeluaran tidak membengkak.',
-      message: 'Gunakan aturan tunggu 24 jam sebelum membeli barang non-prioritas agar pengeluaran tidak membengkak.',
-      priority: 'medium',
-      source: 'rule_based',
-    })
+    recs.push({ id: 'impulsive-spending', recommendation_type: 'behavior_based', title: 'Kurangi pembelian impulsif', text: 'Gunakan aturan tunggu 24 jam sebelum membeli barang non-prioritas.', priority: 'medium', source: 'rule_based', label: null, confidence: null })
   } else {
+    recs.push({ id: 'budget-method', recommendation_type: 'budgeting', title: 'Strategi budget sederhana', text: 'Gunakan metode 50/30/20: kebutuhan, gaya hidup, dan tabungan agar alokasi uang lebih terstruktur.', priority: 'low', source: 'rule_based', label: null, confidence: null })
+  }
+
+  return recs
+}
+
+// ─── Format response AI → format yang diharapkan frontend ─────────────────
+// Frontend mengharapkan array of recommendation cards
+function formatAiResponse(aiResult) {
+  const recs = []
+  const label      = aiResult.label || ''
+  const confidence = aiResult.confidence || 0
+  const savingsPct = aiResult.savings_pct || 0
+
+  // Card 1: Label utama AI
+  recs.push({
+    id: 'ai-label',
+    recommendation_type: 'ai_classification',
+    title: `Profil Keuangan: ${label}`,
+    text: aiResult.financial_health || `Kamu diklasifikasikan sebagai ${label} dengan tingkat keyakinan ${(confidence * 100).toFixed(0)}%.`,
+    priority: label === 'Boros' ? 'high' : label === 'Normal' ? 'medium' : 'low',
+    source: 'llm',
+    label,
+    confidence,
+    savings_pct: savingsPct,
+  })
+
+  // Card 2: Ringkasan dari LLM
+  if (aiResult.recommendation_summary || aiResult.summary_recommendation) {
     recs.push({
-      id: 'budget-method',
-      recommendation_type: 'budgeting',
-      title: 'Strategi budget sederhana',
-      text: 'Gunakan metode 50/30/20: kebutuhan, gaya hidup, dan tabungan agar alokasi uang lebih terstruktur.',
-      message: 'Gunakan metode 50/30/20: kebutuhan, gaya hidup, dan tabungan agar alokasi uang lebih terstruktur.',
-      priority: 'low',
-      source: 'rule_based',
+      id: 'ai-summary',
+      recommendation_type: 'ai_summary',
+      title: 'Ringkasan Keuangan Bulan Ini',
+      text: aiResult.recommendation_summary || aiResult.summary_recommendation,
+      priority: 'high',
+      source: 'llm',
+      label,
+      confidence,
     })
   }
 
-  if (summary.savingProgress > 0 && summary.savingProgress < 50 && user.saving_target > 0) {
+  // Card 3+: Rekomendasi per kategori
+  const catRecs = aiResult.category_recommendations || {}
+  Object.entries(catRecs).forEach(([kategori, teks], idx) => {
     recs.push({
-      id: 'saving-progress-low',
-      recommendation_type: 'saving',
-      title: 'Progress tabungan masih rendah',
-      text: `Progress tabunganmu baru ${summary.savingProgress}% dari target. Coba otomasi sisihkan sebagian penghasilan di awal bulan.`,
-      message: `Progress tabunganmu baru ${summary.savingProgress}% dari target. Coba otomasi sisihkan sebagian penghasilan di awal bulan.`,
+      id: `ai-cat-${kategori}`,
+      recommendation_type: 'ai_category',
+      title: `Tips ${kategori.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}`,
+      text: teks,
       priority: 'medium',
-      source: 'rule_based',
+      source: 'llm',
+      label,
+      confidence,
+      category: kategori,
     })
-  }
+  })
 
   return recs
 }
@@ -136,11 +165,12 @@ function buildRecommendations(transactions, user) {
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 async function getRecommendations(userId) {
-  // Cek cache Redis
+  // Cek Redis cache
   const cacheKey = redis.keys.recommendationsCache(userId)
-  const cached = await redis.get(cacheKey)
+  const cached   = await redis.get(cacheKey)
   if (cached) return cached
 
+  // Ambil user + profile
   const userResult = await db.query(
     `SELECT u.*, row_to_json(up.*) AS profile
      FROM users u
@@ -154,56 +184,48 @@ async function getRecommendations(userId) {
   const profile = rawUser.profile || {}
   const user = {
     monthly_income: Number(profile.monthly_income) || 0,
-    saving_target: Number(profile.saving_target) || 0,
+    saving_target:  Number(profile.saving_target)  || 0,
     financial_goal: profile.financial_goal || '',
     spending_style: profile.spending_style || '',
-    main_priority: profile.main_priority || '',
-    risk_profile: profile.risk_profile || 'moderate',
+    main_priority:  profile.main_priority  || '',
+    risk_profile:   profile.risk_profile   || 'moderate',
   }
 
-  const txResult = await db.query(
-    `SELECT t.*, c.name AS category_name
-     FROM transactions t
-     LEFT JOIN categories c ON c.id = t.category_id
-     WHERE t.user_id = $1
-       AND t.transaction_date >= date_trunc('month', CURRENT_DATE)
-     ORDER BY t.transaction_date DESC`,
-    [userId],
-  )
-
-  // Cek saved recommendations dari DB
-  const savedResult = await db.query(
-    `SELECT * FROM recommendations
-     WHERE user_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
-     ORDER BY created_at DESC`,
-    [userId],
-  )
-
+  // Coba AI dulu
   let data
-  if (savedResult.rows.length > 0) {
-    data = savedResult.rows.map((row) => ({
-      id: row.id,
-      recommendation_type: row.recommendation_type,
-      title: row.title,
-      text: row.message,
-      message: row.message,
-      priority: row.priority,
-      source: row.source,
-      action: row.action || '',
-      expires_at: row.expires_at,
-    }))
-  } else {
-    data = buildRecommendations(txResult.rows, user)
+  try {
+    const aiResult = await getAiAnalysis(userId)
+    if (aiResult) {
+      data = formatAiResponse(aiResult)
+    }
+  } catch (err) {
+    console.error('[Recommendations] AI error, fallback ke rule-based:', err.message)
+  }
+
+  // Jika AI tidak tersedia → rule-based fallback
+  if (!data) {
+    const txResult = await db.query(
+      `SELECT t.*, c.name AS category_name
+       FROM transactions t
+       LEFT JOIN categories c ON c.id = t.category_id
+       WHERE t.user_id = $1
+         AND t.transaction_date >= date_trunc('month', CURRENT_DATE)
+       ORDER BY t.transaction_date DESC`,
+      [userId],
+    )
+    data = buildFallbackRecommendations(txResult.rows, user)
   }
 
   // Simpan ke Redis cache (30 menit)
   await redis.set(cacheKey, data, redis.TTL.RECOMMENDATIONS_CACHE)
-
   return data
 }
 
 async function invalidateCache(userId) {
-  await redis.del(redis.keys.recommendationsCache(userId))
+  await Promise.all([
+    redis.del(redis.keys.recommendationsCache(userId)),
+    invalidateAiCache(userId),
+  ])
 }
 
 module.exports = { getRecommendations, invalidateCache }

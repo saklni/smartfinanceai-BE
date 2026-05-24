@@ -1,236 +1,348 @@
-# SmartFinance AI — Backend
+# SmartFinance AI — Backend Express.js (v2)
 
-REST API untuk SmartFinance AI, dibangun dengan **Node.js + Express.js + PostgreSQL**.
-Dibuat plug-and-play dengan `smartfinanceai-FE-clean`.
-
-## Tech Stack
-
-| Layer | Teknologi |
-|-------|-----------|
-| Runtime | Node.js ≥ 18 |
-| Framework | Express.js 4 |
-| Database | PostgreSQL 14+ |
-| Auth | JWT + bcryptjs + Google Sign-In (GSI) |
-| Validasi | express-validator |
-| Email | Nodemailer (SMTP / Gmail) |
-| Security | helmet, cors, express-rate-limit |
+Backend REST API untuk SmartFinance AI, dibangun dengan Node.js, Express, PostgreSQL, dan Redis.
 
 ---
 
-## Struktur Direktori
+## Perubahan v2 (Fixed)
 
-```
-smartfinanceai-BE/
-├── src/
-│   ├── app.js
-│   ├── config/
-│   │   ├── database.js          # PostgreSQL pool
-│   │   └── mailer.js            # Nodemailer + sendOtpEmail
-│   ├── middleware/
-│   │   ├── authenticate.js      # JWT Bearer → req.user
-│   │   └── validate.js          # express-validator error handler
-│   ├── modules/
-│   │   ├── auth/                # register, login, google, OTP, profile
-│   │   ├── transactions/        # CRUD transaksi
-│   │   ├── categories/          # GET + POST kategori
-│   │   ├── recommendations/     # Rule-based engine
-│   │   └── analytics/           # summary, categories, trend
-│   └── utils/
-│       ├── response.js          # Helper success/error JSON
-│       └── otp.js               # generateOtp, otpExpiresAt
-├── migrations/
-│   └── migrate.js               # Buat semua tabel + seed kategori default
-├── seeds/
-│   └── seed.js                  # User demo + transaksi contoh
-├── .env.example
-└── package.json
-```
+| # | Masalah | Status |
+|---|---------|--------|
+| 1 | Seed kategori English → Indonesia snake_case (sesuai model AI) | ✅ Diperbaiki |
+| 2 | Tabel `ai_analysis` belum ada | ✅ Ditambahkan ke migration |
+| 3 | `recommendations.service.js` masih rule-based, tidak memanggil AI | ✅ Diganti: AI dulu, rule-based fallback |
+| 4 | Tidak ada `aiService.js` sebagai jembatan ke Python API | ✅ Dibuat baru |
+| 5 | Query kategori tidak cocok (`category` string vs JOIN ke tabel `categories`) | ✅ Diperbaiki di `resolveCategoryId()` |
+| 6 | Field `description` tidak ada di tabel `transactions` | ✅ Ditambahkan (untuk `top_transactions` AI prompt) |
+| 7 | Env vars Python API belum ada di `.env` | ✅ Ditambahkan `.env.example` |
+| 8 | AI cache tidak di-invalidate saat ada transaksi baru | ✅ `invalidateAiCache()` dipanggil di transactions |
+| 9 | Credentials sensitif di `.env` | ✅ `.env` tidak di-commit, hanya `.env.example` |
 
 ---
 
-## Setup
+## Prasyarat
 
-### 1. Install dependencies
+- Node.js v18 atau lebih baru
+- PostgreSQL 14+
+- Redis / Memurai (Windows) — untuk caching
+- Python AI API berjalan di port 8001 dan 8002 (opsional, ada fallback rule-based)
+
+---
+
+## Langkah 1 — Setup
+
+### 1.1 Install dependensi
 
 ```bash
 npm install
 ```
 
-### 2. Konfigurasi `.env`
+### 1.2 Buat file `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Isi nilai yang diperlukan:
+Edit `.env` dan isi semua nilai. Field wajib:
 
 ```env
-PORT=5000
-NODE_ENV=development
-
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=smartfinanceai
-DB_USER=postgres
 DB_PASSWORD=password_postgres_kamu
-
-JWT_SECRET=string_random_panjang_minimal_32_karakter
-JWT_EXPIRES_IN=7d
-
-OTP_LENGTH=6
-OTP_EXPIRES_MINUTES=10
-OTP_MAX_ATTEMPTS=5
-
-# Opsional — jika kosong, OTP dicetak di console (mode dev)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your@gmail.com
-SMTP_PASS=your_app_password
-SMTP_FROM="SmartFinance AI <your@gmail.com>"
-
-FRONTEND_URL=http://localhost:5173
+JWT_SECRET=minimal_32_karakter_acak
+SMTP_USER=email_gmail_kamu
+SMTP_PASS=app_password_gmail_16_digit
 ```
 
-### 3. Buat database PostgreSQL
+Field untuk integrasi AI (opsional, ada fallback):
 
-```sql
+```env
+CLASSIFY_API_URL=http://localhost:8002
+SMARTFINANCE_API_KEY=
+```
+
+### 1.3 Buat database PostgreSQL
+
+```bash
+# Masuk ke psql
+psql -U postgres
+
+# Buat database
 CREATE DATABASE smartfinanceai;
+\q
 ```
-
-### 4. Migrasi
-
-```bash
-npm run migrate
-# Reset total: npm run migrate:fresh
-```
-
-### 5. Seed data demo (opsional)
-
-```bash
-npm run seed
-# Akun: demo@smartfinance.ai / demo1234
-```
-
-### 6. Jalankan server
-
-```bash
-npm run dev    # development (nodemon)
-npm start      # production
-```
-
-Server: `http://localhost:5000`
 
 ---
 
-## Integrasi dengan Frontend
+## Langkah 2 — Migrasi Database
 
-Di `.env` frontend:
+```bash
+npm run migrate
+```
 
-```env
-VITE_DATA_SOURCE=api
-VITE_API_BASE_URL=http://localhost:5000/api
-VITE_GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+Ini akan membuat semua tabel termasuk:
+- `users`, `user_profiles`
+- `categories` (dengan seed nama Indonesia snake_case)
+- `transactions` (dengan kolom `description`)
+- `otps`, `recommendations`
+- `ai_analysis` ← **baru di v2**
+
+Output yang diharapkan:
+```
+✅  Tabel users siap
+✅  Tabel user_profiles siap
+✅  Tabel categories siap
+✅  Tabel transactions siap
+✅  Tabel otps siap
+✅  Tabel recommendations siap
+✅  Tabel ai_analysis siap
+✅  Kategori default di-seed (format Indonesia snake_case)
+🎉  Migrasi selesai!
+```
+
+> ⚠️ Jika sudah ada database lama dengan kategori English, jalankan:
+> ```bash
+> npm run migrate:fresh
+> ```
+> **PERINGATAN**: `--fresh` akan menghapus semua data!
+
+### Update kategori tanpa hapus data (jika skip --fresh)
+
+Jika tidak mau hapus data dan hanya ingin update nama kategori:
+
+```sql
+UPDATE categories SET name = 'makanan_minuman',    label = 'Makanan & Minuman'   WHERE LOWER(name) IN ('food', 'makanan');
+UPDATE categories SET name = 'transportasi',        label = 'Transportasi'        WHERE LOWER(name) IN ('transport', 'transportation');
+UPDATE categories SET name = 'hiburan',             label = 'Hiburan'             WHERE LOWER(name) IN ('entertainment', 'lifestyle');
+UPDATE categories SET name = 'belanja_online',      label = 'Belanja Online'      WHERE LOWER(name) IN ('shopping', 'belanja');
+UPDATE categories SET name = 'tagihan_utilitas',    label = 'Tagihan & Utilitas'  WHERE LOWER(name) IN ('bills', 'utilities', 'subscription');
+UPDATE categories SET name = 'kesehatan',           label = 'Kesehatan'           WHERE LOWER(name) IN ('health', 'healthcare');
+UPDATE categories SET name = 'pendidikan',          label = 'Pendidikan'          WHERE LOWER(name) IN ('education');
+UPDATE categories SET name = 'tabungan_investasi',  label = 'Tabungan & Investasi'WHERE LOWER(name) IN ('savings', 'investment', 'tabungan');
+UPDATE categories SET name = 'lainnya',             label = 'Lainnya'             WHERE LOWER(name) IN ('other', 'others');
+UPDATE categories SET name = 'pemasukan',           label = 'Pemasukan'           WHERE LOWER(name) IN ('income');
+```
+
+---
+
+## Langkah 3 — Seed Data Demo (Opsional)
+
+```bash
+npm run seed
+```
+
+Membuat akun demo dengan transaksi contoh bulan Mei 2026:
+- **Email**: `demo@smartfinance.ai`
+- **Password**: `demo1234`
+
+---
+
+## Langkah 4 — Jalankan Server
+
+```bash
+# Development (hot-reload)
+npm run dev
+
+# Production
+npm start
+```
+
+Output normal:
+```
+🚀 SmartFinance AI Backend  →  http://localhost:5000
+🩺 Health check             →  http://localhost:5000/api/health
+🗄  PostgreSQL               →  smartfinanceai@localhost:5432
+⚡ Redis (Memurai)           →  127.0.0.1:6379
+🤖 AI Classification API    →  http://localhost:8002
+🌍 Environment              →  development
+```
+
+---
+
+## Langkah 5 — Integrasi AI (Opsional tapi Direkomendasikan)
+
+Pastikan Python AI API sudah berjalan sebelum backend Express dijalankan:
+
+```bash
+# Terminal 1 — Recommendation API
+uvicorn main_api:app --reload --port 8001
+
+# Terminal 2 — Classification API
+cd model
+uvicorn step4_predict_api:app --reload --port 8002
+```
+
+Jika AI API tidak berjalan, backend akan otomatis fallback ke rekomendasi rule-based — aplikasi tetap berjalan normal.
+
+---
+
+## Struktur File
+
+```
+smartfinanceai-BE/
+├── .env.example                          # Template env vars
+├── package.json
+├── migrations/
+│   └── migrate.js                        # ← v2: kategori Indonesia + tabel ai_analysis
+├── seeds/
+│   └── seed.js                           # ← v2: transaksi demo pakai kategori Indonesia
+└── src/
+    ├── app.js                            # ← v2: tambah log CLASSIFY_API_URL
+    ├── config/
+    │   ├── database.js
+    │   ├── redis.js
+    │   └── mailer.js
+    ├── middleware/
+    │   ├── authenticate.js
+    │   └── validate.js
+    ├── modules/
+    │   ├── auth/
+    │   │   ├── auth.routes.js
+    │   │   ├── auth.controller.js
+    │   │   └── auth.service.js
+    │   ├── transactions/
+    │   │   ├── transactions.routes.js
+    │   │   ├── transactions.controller.js
+    │   │   └── transactions.service.js   # ← v2: description field, invalidate AI cache
+    │   ├── categories/
+    │   │   ├── categories.routes.js
+    │   │   ├── categories.controller.js
+    │   │   └── categories.service.js     # ← v2: return name + label, sorting
+    │   ├── recommendations/
+    │   │   ├── recommendations.routes.js
+    │   │   ├── recommendations.controller.js
+    │   │   ├── recommendations.service.js # ← v2: AI first, rule-based fallback
+    │   │   └── aiService.js              # ← BARU: jembatan ke Python AI API
+    │   ├── analytics/
+    │   │   ├── analytics.routes.js
+    │   │   ├── analytics.controller.js
+    │   │   └── analytics.service.js
+    │   └── forgot-password/
+    │       ├── forgotPassword.routes.js
+    │       ├── forgotPassword.controller.js
+    │       └── forgotPassword.service.js
+    └── utils/
+        ├── response.js
+        └── otp.js
 ```
 
 ---
 
 ## API Endpoints
 
-### Health
-
-```
-GET  /api/health
-```
-
-### Auth
-
-| Method | Endpoint | Auth | Keterangan |
-|--------|----------|------|------------|
-| POST | `/api/auth/register` | — | Daftar, kirim OTP ke email |
-| POST | `/api/auth/login` | — | Login email + password |
-| POST | `/api/auth/google` | — | Login / register via Google One-Tap |
-| POST | `/api/auth/verify-otp` | — | Verifikasi kode OTP |
-| POST | `/api/auth/resend-otp` | — | Kirim ulang OTP |
-| GET | `/api/auth/me` | Bearer | Ambil profil lengkap |
-| PUT | `/api/auth/me` | Bearer | Update profil + onboarding |
-
-### Transactions
-
-| Method | Endpoint | Auth | Keterangan |
-|--------|----------|------|------------|
-| GET | `/api/transactions` | Bearer | Semua transaksi user |
-| POST | `/api/transactions` | Bearer | Tambah transaksi |
-| PUT | `/api/transactions/:id` | Bearer | Edit transaksi |
-| DELETE | `/api/transactions/:id` | Bearer | Hapus transaksi |
-
-### Categories
-
-| Method | Endpoint | Auth | Keterangan |
-|--------|----------|------|------------|
-| GET | `/api/categories` | Bearer | Kategori global + milik user |
-| POST | `/api/categories` | Bearer | Buat kategori custom |
-
-### Recommendations
-
-| Method | Endpoint | Auth | Keterangan |
-|--------|----------|------|------------|
-| GET | `/api/recommendations` | Bearer | Rekomendasi finansial bulan ini |
-
-### Analytics
-
-| Method | Endpoint | Auth | Keterangan |
-|--------|----------|------|------------|
-| GET | `/api/analytics/summary` | Bearer | Ringkasan income/expense/saving bulan ini |
-| GET | `/api/analytics/categories` | Bearer | Pengeluaran per kategori bulan ini |
-| GET | `/api/analytics/trend` | Bearer | Tren 6 bulan terakhir |
+| Method | Endpoint | Deskripsi | Auth |
+|--------|----------|-----------|------|
+| GET | `/api/health` | Status server | ❌ |
+| POST | `/api/auth/register` | Registrasi | ❌ |
+| POST | `/api/auth/login` | Login | ❌ |
+| POST | `/api/auth/verify-otp` | Verifikasi OTP | ❌ |
+| POST | `/api/auth/resend-otp` | Kirim ulang OTP | ❌ |
+| POST | `/api/auth/google` | Login Google | ❌ |
+| GET | `/api/auth/me` | Profil user | ✅ |
+| PUT | `/api/auth/profile` | Update profil | ✅ |
+| GET | `/api/transactions` | Daftar transaksi | ✅ |
+| POST | `/api/transactions` | Buat transaksi | ✅ |
+| PUT | `/api/transactions/:id` | Update transaksi | ✅ |
+| DELETE | `/api/transactions/:id` | Hapus transaksi | ✅ |
+| GET | `/api/categories` | Daftar kategori | ✅ |
+| POST | `/api/categories` | Buat kategori | ✅ |
+| GET | `/api/recommendations` | Rekomendasi AI | ✅ |
+| GET | `/api/analytics/summary` | Ringkasan keuangan | ✅ |
+| GET | `/api/analytics/categories` | Data per kategori | ✅ |
+| GET | `/api/analytics/trend` | Tren 6 bulan | ✅ |
 
 ---
 
-## Format Response
+## Format Response Rekomendasi (v2)
+
+Saat AI tersedia, response `GET /api/recommendations` akan berisi array card:
 
 ```json
-{ "success": true, "message": "OK", "data": { ... } }
+[
+  {
+    "id": "ai-label",
+    "recommendation_type": "ai_classification",
+    "title": "Profil Keuangan: Boros",
+    "text": "Pengeluaran melebihi pemasukan...",
+    "priority": "high",
+    "source": "llm",
+    "label": "Boros",
+    "confidence": 0.92,
+    "savings_pct": 4.0
+  },
+  {
+    "id": "ai-summary",
+    "recommendation_type": "ai_summary",
+    "title": "Ringkasan Keuangan Bulan Ini",
+    "text": "Bulan ini pengeluaran terbesar ada di makanan...",
+    "priority": "high",
+    "source": "llm",
+    "label": "Boros",
+    "confidence": 0.92
+  },
+  {
+    "id": "ai-cat-makanan_minuman",
+    "recommendation_type": "ai_category",
+    "title": "Tips Makanan Minuman",
+    "text": "Pengeluaran makanan mencapai 45%...",
+    "priority": "medium",
+    "source": "llm",
+    "category": "makanan_minuman"
+  }
+]
 ```
 
-Error:
+Saat AI tidak tersedia (fallback rule-based):
 
 ```json
-{ "success": false, "message": "Pesan error", "errors": [...] }
+[
+  {
+    "id": "top-category",
+    "recommendation_type": "spending_pattern",
+    "title": "Kategori pengeluaran terbesar",
+    "text": "makanan minuman menjadi pengeluaran terbesar...",
+    "priority": "high",
+    "source": "rule_based",
+    "label": null,
+    "confidence": null
+  }
+]
 ```
 
 ---
 
-## Google Sign-In — Cara Kerja
+## Troubleshooting
 
-1. FE meload Google GSI SDK dan merender tombol di halaman login
-2. User memilih akun Google → SDK mengembalikan `credential` (JWT)
-3. FE mengirim `POST /api/auth/google` dengan `{ credential }`
-4. BE mendecode payload JWT Google (base64url), membaca `email` + `email_verified`
-5. Jika email sudah terdaftar → login langsung
-6. Jika belum → buat akun baru otomatis (status `active`, tanpa OTP)
-7. BE mengembalikan `{ user, token }` → FE menyimpan token dan redirect
+### Error: relation "ai_analysis" does not exist
 
-> **Catatan produksi:** Untuk verifikasi signature JWT Google secara penuh, install `google-auth-library` dan gunakan `OAuth2Client.verifyIdToken()`. Implementasi saat ini (decode manual) aman untuk development / capstone.
+Jalankan migrasi ulang:
+```bash
+npm run migrate
+```
+
+### Error: category not found / category_id null
+
+Pastikan nama kategori di request cocok dengan yang ada di tabel `categories`:
+```bash
+# Lihat kategori yang tersedia
+psql -U postgres -d smartfinanceai -c "SELECT id, name, label, type FROM categories ORDER BY id;"
+```
+
+Nama yang valid: `makanan_minuman`, `transportasi`, `hiburan`, `belanja_online`, `tagihan_utilitas`, `kesehatan`, `pendidikan`, `tabungan_investasi`, `lainnya`, `pemasukan`
+
+### AI API tidak merespons
+
+Backend akan otomatis fallback ke rule-based. Cek:
+```bash
+curl http://localhost:8002/health
+```
+
+Jika belum jalan, ikuti panduan README di folder AI model.
+
+### Redis connection refused
+
+Backend tetap berjalan tanpa Redis (graceful fallback). Untuk mengaktifkan Redis:
+- Windows: Download Memurai dari https://www.memurai.com/
+- Linux/Mac: `sudo apt install redis-server` atau `brew install redis`
 
 ---
 
-## Skema Database
-
-```
-users             id(UUID), name, email, password_hash, status, email_verified_at
-user_profiles     user_id(FK), nickname, age_range, monthly_income, saving_target,
-                  spending_style, financial_goal, main_priority, risk_profile, onboarding_completed
-categories        id, user_id(NULL=global), name, label, type, icon
-transactions      id, user_id(FK), category_id(FK), title, type, amount, transaction_date, note
-otps              id, user_id(FK), email, otp_code, purpose, is_used, attempts, expires_at
-recommendations   id, user_id(FK), recommendation_type, title, message, priority, source, expires_at
-```
-
----
-
-## Dev Notes
-
-- OTP dicetak di console jika `SMTP_USER` / `SMTP_PASS` kosong
-- Rate limiting: auth 20 req/15min, OTP 5 req/5min, global 200 req/15min
-- CORS hanya mengizinkan origin dari `FRONTEND_URL`
+*SmartFinance AI v2 — Coding Camp 2026 DBS Foundation*

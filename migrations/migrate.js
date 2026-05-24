@@ -1,7 +1,13 @@
 'use strict'
 
 /**
- * migrate.js — Buat semua tabel SmartFinance AI di PostgreSQL
+ * migrate.js — Buat semua tabel SmartFinance AI di PostgreSQL (v2-fixed)
+ *
+ * PERUBAHAN v2:
+ *   - Seed kategori diubah dari English → Indonesia snake_case (sesuai model AI)
+ *   - Tambah tabel ai_analysis untuk menyimpan hasil klasifikasi + rekomendasi AI
+ *   - DROP TABLE ai_analysis juga masuk ke --fresh mode
+ *
  * Jalankan: node migrations/migrate.js
  * Fresh:    node migrations/migrate.js --fresh   (DROP semua tabel dulu!)
  */
@@ -20,6 +26,7 @@ const pool = new Pool({
 const isFresh = process.argv.includes('--fresh')
 
 const DROP_TABLES = `
+  DROP TABLE IF EXISTS ai_analysis CASCADE;
   DROP TABLE IF EXISTS recommendations CASCADE;
   DROP TABLE IF EXISTS otps CASCADE;
   DROP TABLE IF EXISTS transactions CASCADE;
@@ -64,6 +71,8 @@ const CREATE_USER_PROFILES = `
   );
 `
 
+// ── Kategori sekarang menggunakan nama Indonesia snake_case
+//    agar konsisten dengan model AI SmartFinance
 const CREATE_CATEGORIES = `
   CREATE TABLE IF NOT EXISTS categories (
     id         SERIAL PRIMARY KEY,
@@ -86,6 +95,7 @@ const CREATE_TRANSACTIONS = `
     user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     category_id      INTEGER REFERENCES categories(id) ON DELETE SET NULL,
     title            VARCHAR(200) NOT NULL,
+    description      TEXT DEFAULT '',
     type             VARCHAR(10) NOT NULL CHECK (type IN ('income','expense')),
     amount           NUMERIC(15,2) NOT NULL CHECK (amount > 0),
     transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -96,6 +106,7 @@ const CREATE_TRANSACTIONS = `
   CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
   CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(transaction_date DESC);
   CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(user_id, type);
+  CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id);
 `
 
 const CREATE_OTPS = `
@@ -132,25 +143,48 @@ const CREATE_RECOMMENDATIONS = `
   CREATE INDEX IF NOT EXISTS idx_recommendations_user ON recommendations(user_id);
 `
 
+// ── Tabel baru: menyimpan hasil analisis AI (klasifikasi + rekomendasi LLM)
+//    Cache 30 menit dari Python API → hemat token Groq
+const CREATE_AI_ANALYSIS = `
+  CREATE TABLE IF NOT EXISTS ai_analysis (
+    id                   SERIAL PRIMARY KEY,
+    user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    bulan                SMALLINT NOT NULL CHECK (bulan BETWEEN 1 AND 12),
+    tahun                SMALLINT NOT NULL,
+    label_keuangan       VARCHAR(10) NOT NULL,       -- 'Boros', 'Normal', 'Hemat'
+    confidence           NUMERIC(5,4) NOT NULL,       -- 0.0000 – 1.0000
+    savings_pct          NUMERIC(6,2),
+    financial_health     TEXT,
+    summary_rekomendasi  TEXT,
+    category_rekomendasi JSONB,                       -- { "makanan_minuman": "...", ... }
+    generated_at         TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, bulan, tahun)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ai_analysis_user   ON ai_analysis (user_id);
+  CREATE INDEX IF NOT EXISTS idx_ai_analysis_period ON ai_analysis (bulan, tahun);
+`
+
+// ── Seed kategori: nama Indonesia snake_case agar cocok dengan model AI
+//    PENTING: jangan ganti nama-nama ini tanpa update model AI juga
 const SEED_CATEGORIES = `
   INSERT INTO categories (name, label, type, icon) VALUES
-    ('Food',         'Makanan',       'expense', 'utensils'),
-    ('Transport',    'Transportasi',  'expense', 'car'),
-    ('Lifestyle',    'Gaya Hidup',    'expense', 'coffee'),
-    ('Shopping',     'Belanja',       'expense', 'shopping-bag'),
-    ('Education',    'Pendidikan',    'expense', 'book-open'),
-    ('Subscription', 'Langganan',     'expense', 'repeat'),
-    ('Health',       'Kesehatan',     'expense', 'heart-pulse'),
-    ('Bills',        'Tagihan',       'expense', 'receipt'),
-    ('Other',        'Lainnya',       'expense', 'circle'),
-    ('Income',       'Pemasukan',     'income',  'wallet')
+    ('makanan_minuman',    'Makanan & Minuman',  'expense', 'utensils'),
+    ('transportasi',       'Transportasi',       'expense', 'car'),
+    ('hiburan',            'Hiburan',            'expense', 'smile'),
+    ('belanja_online',     'Belanja Online',     'expense', 'shopping-bag'),
+    ('pendidikan',         'Pendidikan',         'expense', 'book-open'),
+    ('tagihan_utilitas',   'Tagihan & Utilitas', 'expense', 'receipt'),
+    ('kesehatan',          'Kesehatan',          'expense', 'heart-pulse'),
+    ('tabungan_investasi', 'Tabungan & Investasi','expense','piggy-bank'),
+    ('lainnya',            'Lainnya',            'expense', 'circle'),
+    ('pemasukan',          'Pemasukan',          'income',  'wallet')
   ON CONFLICT DO NOTHING;
 `
 
 async function migrate() {
   const client = await pool.connect()
   try {
-    console.log('🗄  SmartFinance AI — Database Migration\n')
+    console.log('🗄  SmartFinance AI — Database Migration (v2)\n')
 
     if (isFresh) {
       console.log('⚠️  Mode --fresh: menghapus semua tabel...')
@@ -159,12 +193,13 @@ async function migrate() {
     }
 
     const steps = [
-      ['users', CREATE_USERS],
-      ['user_profiles', CREATE_USER_PROFILES],
-      ['categories', CREATE_CATEGORIES],
-      ['transactions', CREATE_TRANSACTIONS],
-      ['otps', CREATE_OTPS],
-      ['recommendations', CREATE_RECOMMENDATIONS],
+      ['users',            CREATE_USERS],
+      ['user_profiles',    CREATE_USER_PROFILES],
+      ['categories',       CREATE_CATEGORIES],
+      ['transactions',     CREATE_TRANSACTIONS],
+      ['otps',             CREATE_OTPS],
+      ['recommendations',  CREATE_RECOMMENDATIONS],
+      ['ai_analysis',      CREATE_AI_ANALYSIS],
     ]
 
     for (const [name, sql] of steps) {
@@ -173,9 +208,13 @@ async function migrate() {
     }
 
     await client.query(SEED_CATEGORIES)
-    console.log('✅  Kategori default di-seed\n')
+    console.log('✅  Kategori default di-seed (format Indonesia snake_case)\n')
 
     console.log('🎉  Migrasi selesai! Database siap digunakan.')
+    console.log('\n📋  Kategori yang tersedia:')
+    console.log('   makanan_minuman, transportasi, hiburan, belanja_online,')
+    console.log('   pendidikan, tagihan_utilitas, kesehatan, tabungan_investasi,')
+    console.log('   lainnya, pemasukan')
   } catch (err) {
     console.error('\n❌  Migrasi gagal:', err.message)
     console.error('    Pastikan PostgreSQL berjalan dan konfigurasi .env benar.')

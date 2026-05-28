@@ -17,12 +17,6 @@ pool.on('error', (err) => {
   console.error('[DB] Unexpected pool error:', err.message)
 })
 
-/**
- * Execute a query with optional params.
- * @param {string} text
- * @param {any[]} [params]
- * @returns {Promise<import('pg').QueryResult>}
- */
 async function query(text, params) {
   const start = Date.now()
   const result = await pool.query(text, params)
@@ -35,9 +29,6 @@ async function query(text, params) {
   return result
 }
 
-/**
- * Get a client from the pool for transactions.
- */
 async function getClient() {
   return pool.connect()
 }

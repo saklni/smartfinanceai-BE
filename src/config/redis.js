@@ -1,22 +1,5 @@
 'use strict'
 
-/**
- * Redis client menggunakan ioredis → terhubung ke Memurai (Windows)
- * atau Redis standar (Linux/Mac).
- *
- * Memurai adalah Redis-compatible server untuk Windows.
- * Konfigurasi default: localhost:6379 tanpa password.
- *
- * Key naming convention:
- *   sf:otp:{email}:{purpose}        → OTP reset password
- *   sf:reset_token:{token}          → token reset password
- *   sf:session_blacklist:{jti}      → token JWT yang sudah logout
- *   sf:rate:{action}:{identifier}   → rate-limit counter
- *   sf:cache:profile:{userId}       → cache profil user
- *   sf:cache:categories             → cache daftar kategori global
- *   sf:cache:recommendations:{uid}  → cache rekomendasi
- */
-
 const Redis = require('ioredis')
 
 const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1'
@@ -37,7 +20,7 @@ function createClient() {
     retryStrategy(times) {
       if (times > 5) {
         console.warn('[Redis] Max retry tercapai. Redis tidak tersedia, fallback ke mode tanpa cache.')
-        return null // stop retrying
+        return null 
       }
       return Math.min(times * 200, 2000)
     },
@@ -90,8 +73,6 @@ function getClient() {
 function isReady() {
   return isConnected && redisClient !== null
 }
-
-// ─── Utility wrappers (graceful fallback jika Redis mati) ─────────────────────
 
 async function set(key, value, ttlSeconds = null) {
   if (!isReady()) return false
@@ -166,8 +147,6 @@ async function ttl(key) {
   }
 }
 
-// ─── Key builders ─────────────────────────────────────────────────────────────
-
 const keys = {
   resetToken: (token) => `sf:reset_token:${token}`,
   profileCache: (userId) => `sf:cache:profile:${userId}`,
@@ -176,13 +155,12 @@ const keys = {
   sessionBlacklist: (jti) => `sf:session_blacklist:${jti}`,
 }
 
-// ─── TTL constants (detik) ────────────────────────────────────────────────────
 const TTL = {
-  RESET_TOKEN: 10 * 60,       // 10 menit
-  PROFILE_CACHE: 5 * 60,      // 5 menit
-  CATEGORIES_CACHE: 60 * 60,  // 1 jam
-  RECOMMENDATIONS_CACHE: 30 * 60, // 30 menit
-  SESSION_BLACKLIST: 7 * 24 * 60 * 60, // 7 hari (sama dengan JWT_EXPIRES_IN)
+  RESET_TOKEN: 10 * 60,       
+  PROFILE_CACHE: 5 * 60,      
+  CATEGORIES_CACHE: 60 * 60,  
+  RECOMMENDATIONS_CACHE: 30 * 60, 
+  SESSION_BLACKLIST: 7 * 24 * 60 * 60, 
 }
 
 module.exports = { connect, getClient, isReady, set, get, del, exists, incr, ttl, keys, TTL }

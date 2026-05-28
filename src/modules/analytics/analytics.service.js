@@ -3,7 +3,7 @@
 const db = require('../../config/database')
 const redis = require('../../config/redis')
 
-const ANALYTICS_TTL = 5 * 60 // 5 menit
+const ANALYTICS_TTL = 5 * 60 
 
 async function getSummary(userId) {
   const cacheKey = `sf:cache:analytics:summary:${userId}`

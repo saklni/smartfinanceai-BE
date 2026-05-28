@@ -1,20 +1,8 @@
 'use strict'
 
-/**
- * recommendations.service.js (v2-fixed)
- *
- * PERUBAHAN v2:
- *   - Integrasi aiService.js: sekarang memanggil Python AI API (Groq LLM)
- *   - Format response disesuaikan dengan yang diharapkan frontend
- *   - Rule-based engine dipertahankan sebagai FALLBACK jika AI tidak tersedia
- *   - invalidateAiCache() dipanggil bersamaan dengan invalidateCache()
- */
-
 const db    = require('../../config/database')
 const redis = require('../../config/redis')
 const { getAiAnalysis, invalidateAiCache } = require('./aiService')
-
-// ─── Rule-based fallback ───────────────────────────────────────────────────
 
 function getSummary(transactions, user) {
   const income  = transactions.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
@@ -108,15 +96,13 @@ function buildFallbackRecommendations(transactions, user) {
   return recs
 }
 
-// ─── Format response AI → format yang diharapkan frontend ─────────────────
-// Frontend mengharapkan array of recommendation cards
 function formatAiResponse(aiResult) {
   const recs = []
   const label      = aiResult.label || ''
   const confidence = aiResult.confidence || 0
   const savingsPct = aiResult.savings_pct || 0
 
-  // Card 1: Label utama AI
+  
   recs.push({
     id: 'ai-label',
     recommendation_type: 'ai_classification',
@@ -129,7 +115,7 @@ function formatAiResponse(aiResult) {
     savings_pct: savingsPct,
   })
 
-  // Card 2: Ringkasan dari LLM
+  
   if (aiResult.recommendation_summary || aiResult.summary_recommendation) {
     recs.push({
       id: 'ai-summary',
@@ -143,7 +129,7 @@ function formatAiResponse(aiResult) {
     })
   }
 
-  // Card 3+: Rekomendasi per kategori
+  
   const catRecs = aiResult.category_recommendations || {}
   Object.entries(catRecs).forEach(([kategori, teks], idx) => {
     recs.push({
@@ -162,15 +148,13 @@ function formatAiResponse(aiResult) {
   return recs
 }
 
-// ─── Service ──────────────────────────────────────────────────────────────────
-
 async function getRecommendations(userId) {
-  // Cek Redis cache
+  
   const cacheKey = redis.keys.recommendationsCache(userId)
   const cached   = await redis.get(cacheKey)
   if (cached) return cached
 
-  // Ambil user + profile
+  
   const userResult = await db.query(
     `SELECT u.*, row_to_json(up.*) AS profile
      FROM users u
@@ -191,7 +175,7 @@ async function getRecommendations(userId) {
     risk_profile:   profile.risk_profile   || 'moderate',
   }
 
-  // Coba AI dulu
+  
   let data
   try {
     const aiResult = await getAiAnalysis(userId)
@@ -202,7 +186,7 @@ async function getRecommendations(userId) {
     console.error('[Recommendations] AI error, fallback ke rule-based:', err.message)
   }
 
-  // Jika AI tidak tersedia → rule-based fallback
+  
   if (!data) {
     const txResult = await db.query(
       `SELECT t.*, c.name AS category_name
@@ -216,7 +200,7 @@ async function getRecommendations(userId) {
     data = buildFallbackRecommendations(txResult.rows, user)
   }
 
-  // Simpan ke Redis cache (30 menit)
+  
   await redis.set(cacheKey, data, redis.TTL.RECOMMENDATIONS_CACHE)
   return data
 }

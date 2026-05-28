@@ -11,10 +11,6 @@ const OTP_LENGTH = Number(process.env.OTP_LENGTH) || 6
 const OTP_EXPIRES_MIN = Number(process.env.OTP_EXPIRES_MINUTES) || 10
 const OTP_MAX_ATTEMPTS = Number(process.env.OTP_MAX_ATTEMPTS) || 5
 
-/**
- * Langkah 1: User request reset password → kirim OTP ke email
- * Simpan OTP di Redis (primary) dan PostgreSQL (fallback)
- */
 async function requestReset({ email }) {
   const normalizedEmail = email.toLowerCase().trim()
 
@@ -23,7 +19,7 @@ async function requestReset({ email }) {
     [normalizedEmail, 'active'],
   )
 
-  // Selalu return sukses meski email tidak ada (security: jangan bocorkan existensi email)
+  
   if (!userResult.rows.length) {
     return { message: 'Jika email terdaftar, kode OTP akan segera dikirim.' }
   }
@@ -32,7 +28,7 @@ async function requestReset({ email }) {
   const otpCode = generateOtp(OTP_LENGTH)
   const expiresAt = otpExpiresAt(OTP_EXPIRES_MIN)
 
-  // Simpan OTP ke Redis dengan TTL
+  
   const redisKey = `sf:otp:reset:${normalizedEmail}`
   await redis.set(redisKey, {
     otp_code: otpCode,
@@ -41,7 +37,7 @@ async function requestReset({ email }) {
     expires_at: expiresAt.toISOString(),
   }, OTP_EXPIRES_MIN * 60)
 
-  // Fallback: simpan juga ke PostgreSQL
+  
   await db.query(
     `UPDATE otps SET is_used = TRUE WHERE user_id = $1 AND purpose = 'reset_password' AND is_used = FALSE`,
     [userId],
@@ -56,19 +52,15 @@ async function requestReset({ email }) {
   return { message: 'Jika email terdaftar, kode OTP akan segera dikirim.' }
 }
 
-/**
- * Langkah 2: Verifikasi OTP → return reset token (berlaku 10 menit)
- * Reset token disimpan di Redis, bukan dikirim ke FE sebagai JWT
- */
 async function verifyResetOtp({ email, otp_code }) {
   const normalizedEmail = email.toLowerCase().trim()
 
-  // Coba ambil dari Redis dulu
+  
   const redisKey = `sf:otp:reset:${normalizedEmail}`
   let otpData = await redis.get(redisKey)
 
   if (!otpData) {
-    // Fallback ke PostgreSQL
+    
     const userResult = await db.query('SELECT id FROM users WHERE email = $1', [normalizedEmail])
     if (!userResult.rows.length) {
       throw Object.assign(new Error('OTP tidak valid atau sudah kedaluwarsa'), { statusCode: 400 })
@@ -94,19 +86,19 @@ async function verifyResetOtp({ email, otp_code }) {
     }
   }
 
-  // Validasi attempts
+  
   if ((otpData.attempts || 0) >= OTP_MAX_ATTEMPTS) {
     await redis.del(redisKey)
     throw Object.assign(new Error('Percobaan OTP terlalu banyak. Minta OTP baru.'), { statusCode: 429 })
   }
 
-  // Validasi expired
+  
   if (new Date(otpData.expires_at) < new Date()) {
     await redis.del(redisKey)
     throw Object.assign(new Error('Kode OTP sudah kedaluwarsa. Silakan minta OTP baru.'), { statusCode: 400 })
   }
 
-  // Validasi kode
+  
   if (otpData.otp_code !== String(otp_code)) {
     const newAttempts = (otpData.attempts || 0) + 1
     otpData.attempts = newAttempts
@@ -120,7 +112,7 @@ async function verifyResetOtp({ email, otp_code }) {
     throw Object.assign(new Error(`Kode OTP salah. Sisa percobaan: ${left}`), { statusCode: 400 })
   }
 
-  // OTP valid → hapus dari Redis, buat reset token
+  
   await redis.del(redisKey)
   await db.query(
     `UPDATE otps SET is_used = TRUE WHERE email = $1 AND purpose = 'reset_password' AND is_used = FALSE`,
@@ -137,9 +129,6 @@ async function verifyResetOtp({ email, otp_code }) {
   }
 }
 
-/**
- * Langkah 3: Set password baru menggunakan reset token
- */
 async function resetPassword({ reset_token, new_password }) {
   if (!reset_token) throw Object.assign(new Error('Reset token tidak valid'), { statusCode: 400 })
 
@@ -162,7 +151,7 @@ async function resetPassword({ reset_token, new_password }) {
     [hashedPassword, userId],
   )
 
-  // Hapus reset token setelah dipakai
+  
   await redis.del(resetKey)
 
   return { message: 'Password berhasil diperbarui. Silakan masuk dengan password baru.' }

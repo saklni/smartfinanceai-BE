@@ -3,9 +3,6 @@
 const jwt = require('jsonwebtoken')
 const { unauthorized } = require('../utils/response')
 
-/**
- * Verify Bearer JWT and attach req.user = { id, email, name }
- */
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization
 

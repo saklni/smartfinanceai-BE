@@ -1,19 +1,5 @@
 'use strict'
 
-/**
- * seed.js — Isi database dengan user demo + transaksi contoh (v2-fixed)
- *
- * PERUBAHAN v2:
- *   - Nama kategori transaksi diupdate ke format Indonesia snake_case
- *   - Selaras dengan seed di migrate.js v2
- *
- * Jalankan: node seeds/seed.js
- *
- * Akun demo:
- *   Email   : demo@smartfinance.ai
- *   Password: demo1234
- */
-
 require('dotenv').config()
 const bcrypt = require('bcryptjs')
 const { Pool } = require('pg')
@@ -29,7 +15,6 @@ const pool = new Pool({
 const DEMO_EMAIL    = 'demo@smartfinance.ai'
 const DEMO_PASSWORD = 'demo1234'
 
-// Nama kategori sesuai seed di migrate.js (Indonesia snake_case)
 const DEMO_TRANSACTIONS = [
   { title: 'Gaji freelance',     type: 'income',  category: 'pemasukan',          amount: 5000000, date: '2026-05-01', note: 'Project website', description: 'Gaji Mei 2026' },
   { title: 'GoFood makan siang', type: 'expense', category: 'makanan_minuman',     amount: 95000,  date: '2026-05-03', note: 'Kampus',          description: 'GoFood' },
@@ -80,7 +65,7 @@ async function seed() {
       console.log(`✅  User demo dibuat: ${DEMO_EMAIL}`)
     }
 
-    // Seed transactions — cari category_id berdasarkan nama Indonesia
+    
     let added = 0
     for (const tx of DEMO_TRANSACTIONS) {
       const catResult = await client.query(

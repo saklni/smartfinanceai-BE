@@ -1,20 +1,5 @@
 'use strict'
 
-/**
- * aiService.js — Jembatan antara backend Express dan Python AI API
- *
- * Flow:
- *   1. Cek cache tabel ai_analysis (30 menit)
- *   2. Jika miss → query agregasi transaksi dari PostgreSQL
- *   3. Kirim ke Python Classification API (port 8002)
- *   4. Simpan hasil ke ai_analysis
- *   5. Return hasil ke recommendations.service.js
- *
- * Env vars yang dibutuhkan:
- *   CLASSIFY_API_URL       = http://localhost:8002
- *   SMARTFINANCE_API_KEY   = (kosong jika tanpa auth)
- */
-
 const http = require('http')
 const https = require('https')
 const db = require('../../config/database')
@@ -29,7 +14,6 @@ const BULAN_INDONESIA = {
   9: 'September',10:'Oktober', 11: 'November', 12: 'Desember',
 }
 
-// ── HTTP helper (tanpa axios agar tidak tambah dependency) ─────────────────
 function postJson(url, payload) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload)
@@ -75,9 +59,6 @@ function postJson(url, payload) {
   })
 }
 
-// ── Query agregasi — sesuai skema Express backend ──────────────────────────
-// Menggunakan kolom: transactions, transaction_date, amount, type='income'/'expense'
-// JOIN ke tabel categories untuk mendapatkan nama kategori Indonesia
 const QUERY_MONTHLY_SUMMARY = `
   SELECT
     SUM(CASE WHEN t.type = 'income'  THEN t.amount ELSE 0 END) AS total_income,
@@ -106,7 +87,6 @@ const QUERY_MONTHLY_SUMMARY = `
     AND EXTRACT(YEAR  FROM t.transaction_date) = $3
 `
 
-// Top 3 transaksi terbesar bulan ini (untuk memperkaya prompt LLM)
 const QUERY_TOP_TRANSACTIONS = `
   SELECT
     COALESCE(t.description, t.title, c.name, 'Transaksi') AS label,
@@ -121,7 +101,6 @@ const QUERY_TOP_TRANSACTIONS = `
   LIMIT 3
 `
 
-// ── Fungsi: ambil data dari DB ─────────────────────────────────────────────
 async function fetchMonthlyData(userId, bulan, tahun) {
   const [summary, topTx] = await Promise.all([
     db.query(QUERY_MONTHLY_SUMMARY, [userId, bulan, tahun]),
@@ -153,7 +132,6 @@ async function fetchMonthlyData(userId, bulan, tahun) {
   }
 }
 
-// ── Fungsi: bangun categories payload untuk AI API ─────────────────────────
 function buildCategoriesPayload(data) {
   const income = data.total_income || 1
   const topTx  = data._top_transactions || ''
@@ -186,7 +164,6 @@ function buildCategoriesPayload(data) {
   }))
 }
 
-// ── Fungsi: simpan hasil AI ke tabel ai_analysis ───────────────────────────
 async function saveAiResult(userId, bulan, tahun, result) {
   const sql = `
     INSERT INTO ai_analysis (
@@ -216,22 +193,12 @@ async function saveAiResult(userId, bulan, tahun, result) {
   ])
 }
 
-// ── FUNGSI UTAMA ───────────────────────────────────────────────────────────
-/**
- * Ambil analisis AI untuk user bulan tertentu.
- * Cek cache DB dulu (30 menit), baru hit Python API jika perlu.
- *
- * @param {string} userId  - UUID user
- * @param {number} bulan   - 1–12 (default: bulan sekarang)
- * @param {number} tahun   - contoh: 2026
- * @returns {object|null}  - Hasil AI atau null jika tidak ada data
- */
 async function getAiAnalysis(userId, bulan = null, tahun = null) {
   const now = new Date()
   const b = bulan || (now.getMonth() + 1)
   const t = tahun || now.getFullYear()
 
-  // 1. Cek cache DB (30 menit)
+  
   const cached = await db.query(
     `SELECT * FROM ai_analysis
      WHERE user_id = $1 AND bulan = $2 AND tahun = $3
@@ -252,14 +219,14 @@ async function getAiAnalysis(userId, bulan = null, tahun = null) {
     }
   }
 
-  // 2. Ambil data transaksi dari PostgreSQL
+  
   const data = await fetchMonthlyData(userId, b, t)
   if (!data) {
     console.log(`[AI] Tidak ada data transaksi untuk user=${userId} ${b}/${t}`)
     return null
   }
 
-  // 3. Kirim ke Python AI API
+  
   const payload = {
     user_id:                    data.user_id,
     month:                      data.month,
@@ -279,14 +246,18 @@ async function getAiAnalysis(userId, bulan = null, tahun = null) {
 
   let result
   try {
-    result = await postJson(`${CLASSIFY_API_URL}/classify-and-recommend`, payload)
+    result = await postJson(`${CLASSIFY_API_URL}/recommendations`, payload)
+    // Python API mengembalikan "financial_label", normalise ke "label"
+    if (!result.label && result.financial_label) result.label = result.financial_label
+    // Python API tidak mengembalikan confidence; default 1.0
+    if (result.confidence === undefined) result.confidence = 1.0
     console.log(`[AI] Klasifikasi berhasil: ${result.label} (${(result.confidence * 100).toFixed(1)}%)`)
   } catch (err) {
     console.error('[AI] Python API tidak tersedia:', err.message)
     return null
   }
 
-  // 4. Simpan ke tabel ai_analysis
+  
   try {
     await saveAiResult(userId, b, t, result)
   } catch (err) {
@@ -296,9 +267,6 @@ async function getAiAnalysis(userId, bulan = null, tahun = null) {
   return result
 }
 
-/**
- * Hapus cache ai_analysis user (dipanggil setelah ada transaksi baru)
- */
 async function invalidateAiCache(userId) {
   const now = new Date()
   await db.query(

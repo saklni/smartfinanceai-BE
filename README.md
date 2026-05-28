@@ -1,25 +1,3 @@
-# SmartFinance AI — Backend Express.js (v2)
-
-Backend REST API untuk SmartFinance AI, dibangun dengan Node.js, Express, PostgreSQL, dan Redis.
-
----
-
-## Perubahan v2 (Fixed)
-
-| # | Masalah | Status |
-|---|---------|--------|
-| 1 | Seed kategori English → Indonesia snake_case (sesuai model AI) | ✅ Diperbaiki |
-| 2 | Tabel `ai_analysis` belum ada | ✅ Ditambahkan ke migration |
-| 3 | `recommendations.service.js` masih rule-based, tidak memanggil AI | ✅ Diganti: AI dulu, rule-based fallback |
-| 4 | Tidak ada `aiService.js` sebagai jembatan ke Python API | ✅ Dibuat baru |
-| 5 | Query kategori tidak cocok (`category` string vs JOIN ke tabel `categories`) | ✅ Diperbaiki di `resolveCategoryId()` |
-| 6 | Field `description` tidak ada di tabel `transactions` | ✅ Ditambahkan (untuk `top_transactions` AI prompt) |
-| 7 | Env vars Python API belum ada di `.env` | ✅ Ditambahkan `.env.example` |
-| 8 | AI cache tidak di-invalidate saat ada transaksi baru | ✅ `invalidateAiCache()` dipanggil di transactions |
-| 9 | Credentials sensitif di `.env` | ✅ `.env` tidak di-commit, hanya `.env.example` |
-
----
-
 ## Prasyarat
 
 - Node.js v18 atau lebih baru
@@ -78,51 +56,6 @@ CREATE DATABASE smartfinanceai;
 npm run migrate
 ```
 
-Ini akan membuat semua tabel termasuk:
-- `users`, `user_profiles`
-- `categories` (dengan seed nama Indonesia snake_case)
-- `transactions` (dengan kolom `description`)
-- `otps`, `recommendations`
-- `ai_analysis` ← **baru di v2**
-
-Output yang diharapkan:
-```
-✅  Tabel users siap
-✅  Tabel user_profiles siap
-✅  Tabel categories siap
-✅  Tabel transactions siap
-✅  Tabel otps siap
-✅  Tabel recommendations siap
-✅  Tabel ai_analysis siap
-✅  Kategori default di-seed (format Indonesia snake_case)
-🎉  Migrasi selesai!
-```
-
-> ⚠️ Jika sudah ada database lama dengan kategori English, jalankan:
-> ```bash
-> npm run migrate:fresh
-> ```
-> **PERINGATAN**: `--fresh` akan menghapus semua data!
-
-### Update kategori tanpa hapus data (jika skip --fresh)
-
-Jika tidak mau hapus data dan hanya ingin update nama kategori:
-
-```sql
-UPDATE categories SET name = 'makanan_minuman',    label = 'Makanan & Minuman'   WHERE LOWER(name) IN ('food', 'makanan');
-UPDATE categories SET name = 'transportasi',        label = 'Transportasi'        WHERE LOWER(name) IN ('transport', 'transportation');
-UPDATE categories SET name = 'hiburan',             label = 'Hiburan'             WHERE LOWER(name) IN ('entertainment', 'lifestyle');
-UPDATE categories SET name = 'belanja_online',      label = 'Belanja Online'      WHERE LOWER(name) IN ('shopping', 'belanja');
-UPDATE categories SET name = 'tagihan_utilitas',    label = 'Tagihan & Utilitas'  WHERE LOWER(name) IN ('bills', 'utilities', 'subscription');
-UPDATE categories SET name = 'kesehatan',           label = 'Kesehatan'           WHERE LOWER(name) IN ('health', 'healthcare');
-UPDATE categories SET name = 'pendidikan',          label = 'Pendidikan'          WHERE LOWER(name) IN ('education');
-UPDATE categories SET name = 'tabungan_investasi',  label = 'Tabungan & Investasi'WHERE LOWER(name) IN ('savings', 'investment', 'tabungan');
-UPDATE categories SET name = 'lainnya',             label = 'Lainnya'             WHERE LOWER(name) IN ('other', 'others');
-UPDATE categories SET name = 'pemasukan',           label = 'Pemasukan'           WHERE LOWER(name) IN ('income');
-```
-
----
-
 ## Langkah 3 — Seed Data Demo (Opsional)
 
 ```bash
@@ -138,7 +71,7 @@ Membuat akun demo dengan transaksi contoh bulan Mei 2026:
 ## Langkah 4 — Jalankan Server
 
 ```bash
-# Development (hot-reload)
+# Development 
 npm run dev
 
 # Production
@@ -157,7 +90,7 @@ Output normal:
 
 ---
 
-## Langkah 5 — Integrasi AI (Opsional tapi Direkomendasikan)
+## Langkah 5 — Integrasi AI 
 
 Pastikan Python AI API sudah berjalan sebelum backend Express dijalankan:
 
@@ -178,14 +111,14 @@ Jika AI API tidak berjalan, backend akan otomatis fallback ke rekomendasi rule-b
 
 ```
 smartfinanceai-BE/
-├── .env.example                          # Template env vars
+├── .env.example                          
 ├── package.json
 ├── migrations/
-│   └── migrate.js                        # ← v2: kategori Indonesia + tabel ai_analysis
+│   └── migrate.js                        
 ├── seeds/
-│   └── seed.js                           # ← v2: transaksi demo pakai kategori Indonesia
+│   └── seed.js                           
 └── src/
-    ├── app.js                            # ← v2: tambah log CLASSIFY_API_URL
+    ├── app.js                           
     ├── config/
     │   ├── database.js
     │   ├── redis.js
@@ -201,16 +134,16 @@ smartfinanceai-BE/
     │   ├── transactions/
     │   │   ├── transactions.routes.js
     │   │   ├── transactions.controller.js
-    │   │   └── transactions.service.js   # ← v2: description field, invalidate AI cache
+    │   │   └── transactions.service.js  
     │   ├── categories/
     │   │   ├── categories.routes.js
     │   │   ├── categories.controller.js
-    │   │   └── categories.service.js     # ← v2: return name + label, sorting
+    │   │   └── categories.service.js     
     │   ├── recommendations/
     │   │   ├── recommendations.routes.js
     │   │   ├── recommendations.controller.js
-    │   │   ├── recommendations.service.js # ← v2: AI first, rule-based fallback
-    │   │   └── aiService.js              # ← BARU: jembatan ke Python AI API
+    │   │   ├── recommendations.service.js 
+    │   │   └── aiService.js              
     │   ├── analytics/
     │   │   ├── analytics.routes.js
     │   │   ├── analytics.controller.js
@@ -224,125 +157,4 @@ smartfinanceai-BE/
         └── otp.js
 ```
 
----
 
-## API Endpoints
-
-| Method | Endpoint | Deskripsi | Auth |
-|--------|----------|-----------|------|
-| GET | `/api/health` | Status server | ❌ |
-| POST | `/api/auth/register` | Registrasi | ❌ |
-| POST | `/api/auth/login` | Login | ❌ |
-| POST | `/api/auth/verify-otp` | Verifikasi OTP | ❌ |
-| POST | `/api/auth/resend-otp` | Kirim ulang OTP | ❌ |
-| POST | `/api/auth/google` | Login Google | ❌ |
-| GET | `/api/auth/me` | Profil user | ✅ |
-| PUT | `/api/auth/profile` | Update profil | ✅ |
-| GET | `/api/transactions` | Daftar transaksi | ✅ |
-| POST | `/api/transactions` | Buat transaksi | ✅ |
-| PUT | `/api/transactions/:id` | Update transaksi | ✅ |
-| DELETE | `/api/transactions/:id` | Hapus transaksi | ✅ |
-| GET | `/api/categories` | Daftar kategori | ✅ |
-| POST | `/api/categories` | Buat kategori | ✅ |
-| GET | `/api/recommendations` | Rekomendasi AI | ✅ |
-| GET | `/api/analytics/summary` | Ringkasan keuangan | ✅ |
-| GET | `/api/analytics/categories` | Data per kategori | ✅ |
-| GET | `/api/analytics/trend` | Tren 6 bulan | ✅ |
-
----
-
-## Format Response Rekomendasi (v2)
-
-Saat AI tersedia, response `GET /api/recommendations` akan berisi array card:
-
-```json
-[
-  {
-    "id": "ai-label",
-    "recommendation_type": "ai_classification",
-    "title": "Profil Keuangan: Boros",
-    "text": "Pengeluaran melebihi pemasukan...",
-    "priority": "high",
-    "source": "llm",
-    "label": "Boros",
-    "confidence": 0.92,
-    "savings_pct": 4.0
-  },
-  {
-    "id": "ai-summary",
-    "recommendation_type": "ai_summary",
-    "title": "Ringkasan Keuangan Bulan Ini",
-    "text": "Bulan ini pengeluaran terbesar ada di makanan...",
-    "priority": "high",
-    "source": "llm",
-    "label": "Boros",
-    "confidence": 0.92
-  },
-  {
-    "id": "ai-cat-makanan_minuman",
-    "recommendation_type": "ai_category",
-    "title": "Tips Makanan Minuman",
-    "text": "Pengeluaran makanan mencapai 45%...",
-    "priority": "medium",
-    "source": "llm",
-    "category": "makanan_minuman"
-  }
-]
-```
-
-Saat AI tidak tersedia (fallback rule-based):
-
-```json
-[
-  {
-    "id": "top-category",
-    "recommendation_type": "spending_pattern",
-    "title": "Kategori pengeluaran terbesar",
-    "text": "makanan minuman menjadi pengeluaran terbesar...",
-    "priority": "high",
-    "source": "rule_based",
-    "label": null,
-    "confidence": null
-  }
-]
-```
-
----
-
-## Troubleshooting
-
-### Error: relation "ai_analysis" does not exist
-
-Jalankan migrasi ulang:
-```bash
-npm run migrate
-```
-
-### Error: category not found / category_id null
-
-Pastikan nama kategori di request cocok dengan yang ada di tabel `categories`:
-```bash
-# Lihat kategori yang tersedia
-psql -U postgres -d smartfinanceai -c "SELECT id, name, label, type FROM categories ORDER BY id;"
-```
-
-Nama yang valid: `makanan_minuman`, `transportasi`, `hiburan`, `belanja_online`, `tagihan_utilitas`, `kesehatan`, `pendidikan`, `tabungan_investasi`, `lainnya`, `pemasukan`
-
-### AI API tidak merespons
-
-Backend akan otomatis fallback ke rule-based. Cek:
-```bash
-curl http://localhost:8002/health
-```
-
-Jika belum jalan, ikuti panduan README di folder AI model.
-
-### Redis connection refused
-
-Backend tetap berjalan tanpa Redis (graceful fallback). Untuk mengaktifkan Redis:
-- Windows: Download Memurai dari https://www.memurai.com/
-- Linux/Mac: `sudo apt install redis-server` atau `brew install redis`
-
----
-
-*SmartFinance AI v2 — Coding Camp 2026 DBS Foundation*

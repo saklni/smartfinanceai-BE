@@ -12,10 +12,6 @@ const transporter = nodemailer.createTransport({
   },
 })
 
-/**
- * Send OTP email to user.
- * Falls back to console.log in development if SMTP is not configured.
- */
 async function sendOtpEmail(to, otpCode, purpose = 'register') {
   const subjectMap = {
     register: 'Kode Verifikasi SmartFinance AI',

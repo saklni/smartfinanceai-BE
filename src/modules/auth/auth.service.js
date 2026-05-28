@@ -11,8 +11,6 @@ const OTP_LENGTH = Number(process.env.OTP_LENGTH) || 6
 const OTP_EXPIRES_MIN = Number(process.env.OTP_EXPIRES_MINUTES) || 10
 const OTP_MAX_ATTEMPTS = Number(process.env.OTP_MAX_ATTEMPTS) || 5
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function signToken(user) {
   return jwt.sign(
     { id: user.id, email: user.email, name: user.name },
@@ -55,8 +53,6 @@ async function getUserWithProfile(userId) {
   )
   return result.rows[0] || null
 }
-
-// ─── Service functions ────────────────────────────────────────────────────────
 
 async function register({ name, email, password }) {
   const normalizedEmail = email.toLowerCase().trim()
@@ -243,8 +239,6 @@ async function updateProfile(userId, payload) {
 
   return getProfile(userId)
 }
-
-// ─── Google OAuth ─────────────────────────────────────────────────────────────
 
 async function loginWithGoogle({ credential }) {
   if (!credential) {

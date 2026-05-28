@@ -8,7 +8,6 @@ const router = Router()
 
 router.use(authenticate)
 
-// GET /api/recommendations
 router.get('/', controller.getRecommendations)
 
 module.exports = router

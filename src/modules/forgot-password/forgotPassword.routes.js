@@ -22,7 +22,6 @@ const otpLimiter = rateLimit({
   message: { success: false, message: 'Terlalu banyak percobaan. Coba lagi dalam 5 menit.' },
 })
 
-// POST /api/auth/forgot-password
 router.post(
   '/forgot-password',
   forgotLimiter,
@@ -31,7 +30,6 @@ router.post(
   controller.requestReset,
 )
 
-// POST /api/auth/verify-reset-otp
 router.post(
   '/verify-reset-otp',
   otpLimiter,
@@ -43,7 +41,6 @@ router.post(
   controller.verifyResetOtp,
 )
 
-// POST /api/auth/reset-password
 router.post(
   '/reset-password',
   otpLimiter,

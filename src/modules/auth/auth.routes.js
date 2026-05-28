@@ -23,7 +23,6 @@ const otpLimiter = rateLimit({
   message: { success: false, message: 'Terlalu banyak permintaan OTP. Coba lagi dalam 5 menit.' },
 })
 
-// POST /api/auth/register
 router.post(
   '/register',
   authLimiter,
@@ -38,7 +37,6 @@ router.post(
   controller.register,
 )
 
-// POST /api/auth/login
 router.post(
   '/login',
   authLimiter,
@@ -50,7 +48,6 @@ router.post(
   controller.login,
 )
 
-// POST /api/auth/google
 router.post(
   '/google',
   authLimiter,
@@ -59,7 +56,6 @@ router.post(
   controller.loginWithGoogle,
 )
 
-// POST /api/auth/verify-otp
 router.post(
   '/verify-otp',
   otpLimiter,
@@ -72,7 +68,6 @@ router.post(
   controller.verifyOtp,
 )
 
-// POST /api/auth/resend-otp
 router.post(
   '/resend-otp',
   otpLimiter,
@@ -84,10 +79,8 @@ router.post(
   controller.resendOtp,
 )
 
-// GET /api/auth/me
 router.get('/me', authenticate, controller.getProfile)
 
-// PUT /api/auth/me
 router.put(
   '/me',
   authenticate,

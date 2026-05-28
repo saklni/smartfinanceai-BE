@@ -1,17 +1,5 @@
 'use strict'
 
-/**
- * migrate.js — Buat semua tabel SmartFinance AI di PostgreSQL (v2-fixed)
- *
- * PERUBAHAN v2:
- *   - Seed kategori diubah dari English → Indonesia snake_case (sesuai model AI)
- *   - Tambah tabel ai_analysis untuk menyimpan hasil klasifikasi + rekomendasi AI
- *   - DROP TABLE ai_analysis juga masuk ke --fresh mode
- *
- * Jalankan: node migrations/migrate.js
- * Fresh:    node migrations/migrate.js --fresh   (DROP semua tabel dulu!)
- */
-
 require('dotenv').config()
 const { Pool } = require('pg')
 
@@ -71,8 +59,6 @@ const CREATE_USER_PROFILES = `
   );
 `
 
-// ── Kategori sekarang menggunakan nama Indonesia snake_case
-//    agar konsisten dengan model AI SmartFinance
 const CREATE_CATEGORIES = `
   CREATE TABLE IF NOT EXISTS categories (
     id         SERIAL PRIMARY KEY,
@@ -143,8 +129,6 @@ const CREATE_RECOMMENDATIONS = `
   CREATE INDEX IF NOT EXISTS idx_recommendations_user ON recommendations(user_id);
 `
 
-// ── Tabel baru: menyimpan hasil analisis AI (klasifikasi + rekomendasi LLM)
-//    Cache 30 menit dari Python API → hemat token Groq
 const CREATE_AI_ANALYSIS = `
   CREATE TABLE IF NOT EXISTS ai_analysis (
     id                   SERIAL PRIMARY KEY,
@@ -164,8 +148,6 @@ const CREATE_AI_ANALYSIS = `
   CREATE INDEX IF NOT EXISTS idx_ai_analysis_period ON ai_analysis (bulan, tahun);
 `
 
-// ── Seed kategori: nama Indonesia snake_case agar cocok dengan model AI
-//    PENTING: jangan ganti nama-nama ini tanpa update model AI juga
 const SEED_CATEGORIES = `
   INSERT INTO categories (name, label, type, icon) VALUES
     ('makanan_minuman',    'Makanan & Minuman',  'expense', 'utensils'),

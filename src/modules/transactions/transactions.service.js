@@ -1,14 +1,5 @@
 'use strict'
 
-/**
- * transactions.service.js (v2-fixed)
- *
- * PERUBAHAN v2:
- *   - resolveCategoryId() mencari berdasarkan nama Indonesia snake_case
- *   - formatTransaction() menambahkan field description
- *   - Setelah create/update/delete → invalidate AI cache juga
- */
-
 const db = require('../../config/database')
 const redis = require('../../config/redis')
 const { invalidateCache: invalidateAnalytics } = require('../analytics/analytics.service')
@@ -58,10 +49,6 @@ async function getTransactions(userId) {
   return result.rows.map(formatTransaction)
 }
 
-/**
- * Cari category_id berdasarkan nama Indonesia snake_case atau label.
- * Prioritas: category_id langsung > name (Indonesia) > label (bahasa tampilan)
- */
 async function resolveCategoryId(userId, categoryId, categoryName) {
   if (categoryId) return categoryId
   if (!categoryName) return null

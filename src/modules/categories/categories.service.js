@@ -1,14 +1,5 @@
 'use strict'
 
-/**
- * categories.service.js (v2-fixed)
- *
- * PERUBAHAN v2:
- *   - Response sekarang menyertakan field `name` (Indonesia snake_case) DAN `label` (bahasa tampilan)
- *   - Frontend bisa pakai label untuk display, name untuk lookup ke AI
- *   - Urutan sorted: global dulu (user_id IS NULL), lalu custom user
- */
-
 const db    = require('../../config/database')
 const redis = require('../../config/redis')
 
@@ -16,8 +7,8 @@ function formatCategory(row) {
   return {
     id:         row.id,
     user_id:    row.user_id || null,
-    name:       row.name,           // Indonesia snake_case — dipakai untuk AI lookup
-    label:      row.label,          // Bahasa tampilan — dipakai frontend untuk display
+    name:       row.name,           
+    label:      row.label,          
     type:       row.type,
     icon:       row.icon || 'circle',
     is_default: row.user_id === null,

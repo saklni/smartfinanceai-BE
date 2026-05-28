@@ -1,15 +1,5 @@
 'use strict'
 
-/**
- * transactions.routes.js (v2-patch)
- *
- * FIX:
- *   - category_id: boleh null/undefined — jangan validasi jika tidak ada
- *     (frontend kirim null saat kategori dipilih lewat name string, bukan id)
- *   - description: optional, jangan reject jika tidak ada
- *   - amount: terima string angka dari frontend (isFloat tetap aman)
- */
-
 const { Router } = require('express')
 const { body, param } = require('express-validator')
 const controller = require('./transactions.controller')
@@ -37,12 +27,12 @@ const txBody = [
     .notEmpty().withMessage('Tanggal transaksi wajib diisi')
     .isISO8601().withMessage('Format tanggal tidak valid (gunakan YYYY-MM-DD)'),
 
-  // category: string nama kategori (opsional, bisa null/kosong)
+  
   body('category')
     .optional({ nullable: true, checkFalsy: true })
     .isString().trim(),
 
-  // category_id: integer opsional — BOLEH null, tidak di-reject
+  
   body('category_id')
     .optional({ nullable: true })
     .custom((value) => {

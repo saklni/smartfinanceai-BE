@@ -50,9 +50,9 @@ function postJson(url, payload) {
     })
 
     req.on('error', reject)
-    req.setTimeout(30000, () => {
+    req.setTimeout(60000, () => {
       req.destroy()
-      reject(new Error('AI API timeout (30s)'))
+      reject(new Error('AI API timeout (60s)'))
     })
     req.write(body)
     req.end()
@@ -246,10 +246,8 @@ async function getAiAnalysis(userId, bulan = null, tahun = null) {
 
   let result
   try {
-    result = await postJson(`${CLASSIFY_API_URL}/recommendations`, payload)
-    // Python API mengembalikan "financial_label", normalise ke "label"
+    result = await postJson(`${CLASSIFY_API_URL}/classify-and-recommend`, payload)
     if (!result.label && result.financial_label) result.label = result.financial_label
-    // Python API tidak mengembalikan confidence; default 1.0
     if (result.confidence === undefined) result.confidence = 1.0
     console.log(`[AI] Klasifikasi berhasil: ${result.label} (${(result.confidence * 100).toFixed(1)}%)`)
   } catch (err) {

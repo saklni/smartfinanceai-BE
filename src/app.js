@@ -9,7 +9,6 @@ const rateLimit = require('express-rate-limit')
 
 const redis               = require('./config/redis')
 const authRoutes          = require('./modules/auth/auth.routes')
-const forgotPasswordRoutes= require('./modules/forgot-password/forgotPassword.routes')
 const transactionRoutes   = require('./modules/transactions/transactions.routes')
 const categoryRoutes      = require('./modules/categories/categories.routes')
 const recommendationRoutes= require('./modules/recommendations/recommendations.routes')
@@ -17,8 +16,6 @@ const analyticsRoutes     = require('./modules/analytics/analytics.routes')
 
 const app = express()
 
-// Trust reverse proxy (nginx/load balancer) agar express-rate-limit
-// bisa baca X-Forwarded-For dengan benar di production
 app.set('trust proxy', 1)
 
 app.use(helmet())
@@ -63,7 +60,6 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api/auth',            authRoutes)
-app.use('/api/auth',            forgotPasswordRoutes)
 app.use('/api/transactions',    transactionRoutes)
 app.use('/api/categories',      categoryRoutes)
 app.use('/api/recommendations', recommendationRoutes)

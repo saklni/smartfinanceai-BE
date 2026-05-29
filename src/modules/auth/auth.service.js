@@ -4,12 +4,6 @@ const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const { v4: uuidv4 } = require('uuid')
 const db = require('../../config/database')
-const { sendOtpEmail } = require('../../config/mailer')
-const { generateOtp, otpExpiresAt } = require('../../utils/otp')
-
-const OTP_LENGTH = Number(process.env.OTP_LENGTH) || 6
-const OTP_EXPIRES_MIN = Number(process.env.OTP_EXPIRES_MINUTES) || 10
-const OTP_MAX_ATTEMPTS = Number(process.env.OTP_MAX_ATTEMPTS) || 5
 
 function signToken(user) {
   return jwt.sign(
@@ -69,7 +63,8 @@ async function register({ name, email, password }) {
   try {
     await client.query('BEGIN')
     await client.query(
-      `INSERT INTO users (id, name, email, password_hash, status) VALUES ($1, $2, $3, $4, 'pending')`,
+      `INSERT INTO users (id, name, email, password_hash, status, email_verified_at)
+       VALUES ($1, $2, $3, $4, 'active', NOW())`,
       [userId, name.trim(), normalizedEmail, hashedPassword],
     )
     await client.query(
@@ -84,20 +79,12 @@ async function register({ name, email, password }) {
     client.release()
   }
 
-  const otpCode = generateOtp(OTP_LENGTH)
-  const expiresAt = otpExpiresAt(OTP_EXPIRES_MIN)
-
-  await db.query(
-    `INSERT INTO otps (user_id, email, otp_code, purpose, expires_at) VALUES ($1, $2, $3, 'register', $4)`,
-    [userId, normalizedEmail, otpCode, expiresAt],
-  )
-  await sendOtpEmail(normalizedEmail, otpCode, 'register')
-
   const rawUser = await getUserWithProfile(userId)
+  const token = signToken(rawUser)
   return {
     user: formatUser(rawUser),
-    requiresOtp: true,
-    message: 'Registrasi berhasil. Cek email untuk kode OTP.',
+    token,
+    message: 'Registrasi berhasil.',
   }
 }
 
@@ -115,83 +102,8 @@ async function login({ email, password }) {
     throw Object.assign(new Error('Email atau password salah'), { statusCode: 401 })
   }
 
-  if (user.status === 'pending') {
-    throw Object.assign(new Error('Akun belum diverifikasi. Masukkan OTP terlebih dahulu.'), { statusCode: 403 })
-  }
-
   const rawUser = await getUserWithProfile(user.id)
   return { user: formatUser(rawUser), token: signToken(user) }
-}
-
-async function verifyOtp({ email, otp_code, purpose = 'register' }) {
-  const normalizedEmail = email.toLowerCase().trim()
-
-  const userResult = await db.query('SELECT id FROM users WHERE email = $1', [normalizedEmail])
-  if (!userResult.rows.length) {
-    throw Object.assign(new Error('Email tidak ditemukan'), { statusCode: 404 })
-  }
-  const userId = userResult.rows[0].id
-
-  const otpResult = await db.query(
-    `SELECT * FROM otps WHERE user_id = $1 AND email = $2 AND purpose = $3 AND is_used = FALSE
-     ORDER BY created_at DESC LIMIT 1`,
-    [userId, normalizedEmail, purpose],
-  )
-  if (!otpResult.rows.length) {
-    throw Object.assign(new Error('OTP tidak ditemukan. Silakan kirim ulang OTP.'), { statusCode: 400 })
-  }
-
-  const otp = otpResult.rows[0]
-
-  if (otp.attempts >= OTP_MAX_ATTEMPTS) {
-    throw Object.assign(new Error('Percobaan OTP terlalu banyak. Kirim ulang kode OTP.'), { statusCode: 429 })
-  }
-  if (new Date(otp.expires_at) < new Date()) {
-    throw Object.assign(new Error('Kode OTP sudah kedaluwarsa. Silakan kirim ulang OTP.'), { statusCode: 400 })
-  }
-  if (otp.otp_code !== String(otp_code)) {
-    await db.query('UPDATE otps SET attempts = attempts + 1 WHERE id = $1', [otp.id])
-    const remaining = OTP_MAX_ATTEMPTS - (otp.attempts + 1)
-    throw Object.assign(new Error(`Kode OTP salah. Sisa percobaan: ${remaining}`), { statusCode: 400 })
-  }
-
-  const client = await db.getClient()
-  try {
-    await client.query('BEGIN')
-    await client.query('UPDATE otps SET is_used = TRUE WHERE id = $1', [otp.id])
-    await client.query(`UPDATE users SET status = 'active', email_verified_at = NOW() WHERE id = $1`, [userId])
-    await client.query('COMMIT')
-  } catch (err) {
-    await client.query('ROLLBACK')
-    throw err
-  } finally {
-    client.release()
-  }
-
-  const rawUser = await getUserWithProfile(userId)
-  return { user: formatUser(rawUser), token: signToken(rawUser) }
-}
-
-async function resendOtp({ email, purpose = 'register' }) {
-  const normalizedEmail = email.toLowerCase().trim()
-
-  const userResult = await db.query('SELECT id FROM users WHERE email = $1', [normalizedEmail])
-  if (!userResult.rows.length) {
-    throw Object.assign(new Error('Email tidak ditemukan'), { statusCode: 404 })
-  }
-  const userId = userResult.rows[0].id
-
-  await db.query(`UPDATE otps SET is_used = TRUE WHERE user_id = $1 AND purpose = $2 AND is_used = FALSE`, [userId, purpose])
-
-  const otpCode = generateOtp(OTP_LENGTH)
-  const expiresAt = otpExpiresAt(OTP_EXPIRES_MIN)
-
-  await db.query(
-    `INSERT INTO otps (user_id, email, otp_code, purpose, expires_at) VALUES ($1, $2, $3, $4, $5)`,
-    [userId, normalizedEmail, otpCode, purpose, expiresAt],
-  )
-  await sendOtpEmail(normalizedEmail, otpCode, purpose)
-  return { message: 'OTP baru telah dikirim ke email kamu.' }
 }
 
 async function getProfile(userId) {
@@ -238,6 +150,26 @@ async function updateProfile(userId, payload) {
   }
 
   return getProfile(userId)
+}
+
+async function changePassword(userId, { current_password, new_password }) {
+  const result = await db.query('SELECT password_hash FROM users WHERE id = $1', [userId])
+  if (!result.rows.length) {
+    throw Object.assign(new Error('Pengguna tidak ditemukan'), { statusCode: 404 })
+  }
+
+  const passwordMatch = await bcrypt.compare(current_password, result.rows[0].password_hash)
+  if (!passwordMatch) {
+    throw Object.assign(new Error('Password saat ini salah'), { statusCode: 400 })
+  }
+
+  const hashedPassword = await bcrypt.hash(new_password, 12)
+  await db.query(
+    'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+    [hashedPassword, userId],
+  )
+
+  return { message: 'Password berhasil diperbarui.' }
 }
 
 async function loginWithGoogle({ credential }) {
@@ -299,4 +231,4 @@ async function loginWithGoogle({ credential }) {
   return { user: formatUser(rawUser), token: signToken(rawUser) }
 }
 
-module.exports = { register, login, verifyOtp, resendOtp, getProfile, updateProfile, loginWithGoogle }
+module.exports = { register, login, getProfile, updateProfile, changePassword, loginWithGoogle }

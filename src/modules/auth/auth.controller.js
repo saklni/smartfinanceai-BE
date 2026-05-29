@@ -30,24 +30,6 @@ async function loginWithGoogle(req, res) {
   }
 }
 
-async function verifyOtp(req, res) {
-  try {
-    const result = await authService.verifyOtp(req.body)
-    return success(res, result, 'Verifikasi OTP berhasil')
-  } catch (err) {
-    return error(res, err.message, err.statusCode || 500)
-  }
-}
-
-async function resendOtp(req, res) {
-  try {
-    const result = await authService.resendOtp(req.body)
-    return success(res, result, result.message)
-  } catch (err) {
-    return error(res, err.message, err.statusCode || 500)
-  }
-}
-
 async function getProfile(req, res) {
   try {
     const profile = await authService.getProfile(req.user.id)
@@ -66,4 +48,13 @@ async function updateProfile(req, res) {
   }
 }
 
-module.exports = { register, login, loginWithGoogle, verifyOtp, resendOtp, getProfile, updateProfile }
+async function changePassword(req, res) {
+  try {
+    const result = await authService.changePassword(req.user.id, req.body)
+    return success(res, null, result.message)
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500)
+  }
+}
+
+module.exports = { register, login, loginWithGoogle, getProfile, updateProfile, changePassword }

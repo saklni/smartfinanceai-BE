@@ -17,12 +17,6 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 })
 
-const otpLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  max: 5,
-  message: { success: false, message: 'Terlalu banyak permintaan OTP. Coba lagi dalam 5 menit.' },
-})
-
 router.post(
   '/register',
   authLimiter,
@@ -56,29 +50,6 @@ router.post(
   controller.loginWithGoogle,
 )
 
-router.post(
-  '/verify-otp',
-  otpLimiter,
-  [
-    body('email').isEmail().withMessage('Format email tidak valid').normalizeEmail(),
-    body('otp_code').notEmpty().withMessage('Kode OTP wajib diisi').isLength({ min: 4, max: 8 }),
-    body('purpose').optional().isIn(['register', 'reset_password']),
-  ],
-  validate,
-  controller.verifyOtp,
-)
-
-router.post(
-  '/resend-otp',
-  otpLimiter,
-  [
-    body('email').isEmail().withMessage('Format email tidak valid').normalizeEmail(),
-    body('purpose').optional().isIn(['register', 'reset_password']),
-  ],
-  validate,
-  controller.resendOtp,
-)
-
 router.get('/me', authenticate, controller.getProfile)
 
 router.put(
@@ -102,6 +73,19 @@ router.put(
   ],
   validate,
   controller.updateProfile,
+)
+
+router.put(
+  '/me/password',
+  authenticate,
+  [
+    body('current_password').notEmpty().withMessage('Password saat ini wajib diisi'),
+    body('new_password')
+      .isLength({ min: 8 }).withMessage('Password minimal 8 karakter')
+      .matches(/(?=.*[A-Za-z])(?=.*\d)/).withMessage('Password harus mengandung huruf dan angka'),
+  ],
+  validate,
+  controller.changePassword,
 )
 
 module.exports = router

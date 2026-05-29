@@ -16,7 +16,6 @@ const isFresh = process.argv.includes('--fresh')
 const DROP_TABLES = `
   DROP TABLE IF EXISTS ai_analysis CASCADE;
   DROP TABLE IF EXISTS recommendations CASCADE;
-  DROP TABLE IF EXISTS otps CASCADE;
   DROP TABLE IF EXISTS transactions CASCADE;
   DROP TABLE IF EXISTS categories CASCADE;
   DROP TABLE IF EXISTS user_profiles CASCADE;
@@ -29,9 +28,9 @@ const CREATE_USERS = `
     name         VARCHAR(100) NOT NULL,
     email        VARCHAR(255) NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    status       VARCHAR(20) NOT NULL DEFAULT 'pending'
-                   CHECK (status IN ('pending', 'active', 'suspended')),
-    email_verified_at TIMESTAMPTZ,
+    status       VARCHAR(20) NOT NULL DEFAULT 'active'
+                   CHECK (status IN ('active', 'suspended')),
+    email_verified_at TIMESTAMPTZ DEFAULT NOW(),
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
@@ -95,22 +94,6 @@ const CREATE_TRANSACTIONS = `
   CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id);
 `
 
-const CREATE_OTPS = `
-  CREATE TABLE IF NOT EXISTS otps (
-    id         SERIAL PRIMARY KEY,
-    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    email      VARCHAR(255) NOT NULL,
-    otp_code   VARCHAR(10) NOT NULL,
-    purpose    VARCHAR(30) NOT NULL DEFAULT 'register'
-                 CHECK (purpose IN ('register','reset_password')),
-    is_used    BOOLEAN NOT NULL DEFAULT FALSE,
-    attempts   INTEGER NOT NULL DEFAULT 0,
-    expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  );
-  CREATE INDEX IF NOT EXISTS idx_otps_user_purpose ON otps(user_id, purpose, is_used);
-`
-
 const CREATE_RECOMMENDATIONS = `
   CREATE TABLE IF NOT EXISTS recommendations (
     id                  SERIAL PRIMARY KEY,
@@ -135,12 +118,12 @@ const CREATE_AI_ANALYSIS = `
     user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     bulan                SMALLINT NOT NULL CHECK (bulan BETWEEN 1 AND 12),
     tahun                SMALLINT NOT NULL,
-    label_keuangan       VARCHAR(10) NOT NULL,       -- 'Boros', 'Normal', 'Hemat'
-    confidence           NUMERIC(5,4) NOT NULL,       -- 0.0000 – 1.0000
+    label_keuangan       VARCHAR(10) NOT NULL,
+    confidence           NUMERIC(5,4) NOT NULL,
     savings_pct          NUMERIC(6,2),
     financial_health     TEXT,
     summary_rekomendasi  TEXT,
-    category_rekomendasi JSONB,                       -- { "makanan_minuman": "...", ... }
+    category_rekomendasi JSONB,
     generated_at         TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (user_id, bulan, tahun)
   );
@@ -166,7 +149,7 @@ const SEED_CATEGORIES = `
 async function migrate() {
   const client = await pool.connect()
   try {
-    console.log('🗄  SmartFinance AI — Database Migration (v2)\n')
+    console.log('🗄  SmartFinance AI — Database Migration (v3)\n')
 
     if (isFresh) {
       console.log('⚠️  Mode --fresh: menghapus semua tabel...')
@@ -179,7 +162,6 @@ async function migrate() {
       ['user_profiles',    CREATE_USER_PROFILES],
       ['categories',       CREATE_CATEGORIES],
       ['transactions',     CREATE_TRANSACTIONS],
-      ['otps',             CREATE_OTPS],
       ['recommendations',  CREATE_RECOMMENDATIONS],
       ['ai_analysis',      CREATE_AI_ANALYSIS],
     ]

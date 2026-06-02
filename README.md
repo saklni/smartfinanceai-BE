@@ -23,11 +23,6 @@ cp .env.example .env
 
 Edit `.env` dan isi semua nilai. Field wajib:
 
-```env
-DB_PASSWORD=password_postgres_kamu
-JWT_SECRET=minimal_32_karakter_acak
-SMTP_USER=email_gmail_kamu
-SMTP_PASS=app_password_gmail_16_digit
 ```
 
 Field untuk integrasi AI (opsional, ada fallback):
@@ -105,56 +100,5 @@ uvicorn step4_predict_api:app --reload --port 8002
 
 Jika AI API tidak berjalan, backend akan otomatis fallback ke rekomendasi rule-based — aplikasi tetap berjalan normal.
 
----
-
-## Struktur File
-
-```
-smartfinanceai-BE/
-├── .env.example                          
-├── package.json
-├── migrations/
-│   └── migrate.js                        
-├── seeds/
-│   └── seed.js                           
-└── src/
-    ├── app.js                           
-    ├── config/
-    │   ├── database.js
-    │   ├── redis.js
-    │   └── mailer.js
-    ├── middleware/
-    │   ├── authenticate.js
-    │   └── validate.js
-    ├── modules/
-    │   ├── auth/
-    │   │   ├── auth.routes.js
-    │   │   ├── auth.controller.js
-    │   │   └── auth.service.js
-    │   ├── transactions/
-    │   │   ├── transactions.routes.js
-    │   │   ├── transactions.controller.js
-    │   │   └── transactions.service.js  
-    │   ├── categories/
-    │   │   ├── categories.routes.js
-    │   │   ├── categories.controller.js
-    │   │   └── categories.service.js     
-    │   ├── recommendations/
-    │   │   ├── recommendations.routes.js
-    │   │   ├── recommendations.controller.js
-    │   │   ├── recommendations.service.js 
-    │   │   └── aiService.js              
-    │   ├── analytics/
-    │   │   ├── analytics.routes.js
-    │   │   ├── analytics.controller.js
-    │   │   └── analytics.service.js
-    │   └── forgot-password/
-    │       ├── forgotPassword.routes.js
-    │       ├── forgotPassword.controller.js
-    │       └── forgotPassword.service.js
-    └── utils/
-        ├── response.js
-        └── otp.js
-```
 
 

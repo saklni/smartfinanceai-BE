@@ -245,15 +245,41 @@ async function getAiAnalysis(userId, bulan = null, tahun = null) {
   }
 
   let result
-  try {
-    result = await postJson(`${CLASSIFY_API_URL}/classify-and-recommend`, payload)
-    if (!result.label && result.financial_label) result.label = result.financial_label
-    if (result.confidence === undefined) result.confidence = 1.0
-    console.log(`[AI] Klasifikasi berhasil: ${result.label} (${(result.confidence * 100).toFixed(1)}%)`)
-  } catch (err) {
-    console.error('[AI] Python API tidak tersedia:', err.message)
-    return null
+
+console.log('[AI DEBUG] URL:', `${CLASSIFY_API_URL}/classify-and-recommend`)
+console.log('[AI DEBUG] Payload:', JSON.stringify(payload, null, 2))
+
+try {
+  result = await postJson(
+    `${CLASSIFY_API_URL}/classify-and-recommend`,
+    payload
+  )
+
+  console.log('[AI DEBUG] Response:', JSON.stringify(result, null, 2))
+
+  if (!result.label && result.financial_label) {
+    result.label = result.financial_label
   }
+
+  if (result.confidence === undefined) {
+    result.confidence = 1.0
+  }
+
+  console.log(
+    `[AI] Klasifikasi berhasil: ${result.label} (${(
+      result.confidence * 100
+    ).toFixed(1)}%)`
+  )
+} catch (err) {
+  console.error('[AI FULL ERROR]', err)
+  console.error('[AI MESSAGE]', err.message)
+
+  if (err.stack) {
+    console.error('[AI STACK]', err.stack)
+  }
+
+  return null
+}
 
   
   try {

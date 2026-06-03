@@ -108,10 +108,7 @@ async function fetchMonthlyData(userId, bulan, tahun) {
   ])
 
   const row = summary.rows[0]
-
-if (!row) {
-  return null
-}
+  if (!row || Number(row.total_income) <= 0) return null
 
   const topTransactions = topTx.rows
     .map((r) => `${r.label} Rp ${Number(r.amount).toLocaleString('id-ID')}`)
@@ -136,7 +133,7 @@ if (!row) {
 }
 
 function buildCategoriesPayload(data) {
-  const income = Number(data.total_income || 0)
+  const income = data.total_income || 1
   const topTx  = data._top_transactions || ''
 
   const fields = {
@@ -163,10 +160,7 @@ function buildCategoriesPayload(data) {
     top_transactions:     (kategori === biggestCat && topTx)
       ? topTx
       : `Pengeluaran ${kategori.replace(/_/g, ' ')} Rp ${total.toLocaleString('id-ID')}`,
-    percentage_of_income:
-  income > 0
-    ? Math.round((total / income) * 1000) / 10
-    : 0,
+    percentage_of_income: Math.round((total / income) * 1000) / 10,
   }))
 }
 
@@ -227,13 +221,11 @@ async function getAiAnalysis(userId, bulan = null, tahun = null) {
 
   
   const data = await fetchMonthlyData(userId, b, t)
+  if (!data) {
+    console.log(`[AI] Tidak ada data transaksi untuk user=${userId} ${b}/${t}`)
+    return null
+  }
 
-if (!data) {
-  console.log(
-    `[AI] Tidak ditemukan transaksi untuk user=${userId} ${b}/${t}`
-  )
-  return null
-}
   
   const payload = {
     user_id:                    data.user_id,
